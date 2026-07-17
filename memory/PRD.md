@@ -43,6 +43,17 @@ Backend 27/27 pytest pass; Frontend 7/7 flows pass (incl. live Gemini chat). No 
 - Set `CORS_ORIGINS` to the frontend domain(s); `REACT_APP_BACKEND_URL` is build-time on Render.
 - Caveats flagged: EMERGENT_LLM_KEY portability off-platform; demo seed runs on startup; Render cold starts on free tier.
 
+## AI provider (2026-06 — migrated to direct Gemini)
+- Swapped AI orchestrator from Emergent LLM key (emergentintegrations) to the official `google-genai` SDK using the user's own `GEMINI_API_KEY`. Fully independent of Emergent.
+- Model: `gemini-3.1-pro-preview` (override via `GEMINI_MODEL`). Structured JSON via `response_mime_type=application/json`, same 2-retry + validate + human-review fallback.
+- Verified: backend imports/starts clean; key authenticates; chat path fails gracefully to human-review on quota (429). Live AI responses resume when the Google project has quota/billing.
+
+## Onboarding Wizard (2026-06)
+- First-login setup flow for dealership admins (shows whenever `org.onboarding_complete !== true`, per user choice b).
+- 3 steps: Dealership + primary location details → business hours (days + window → availability rows) → optional starter inventory.
+- Backend: `POST /api/onboarding/complete` (updates org + upserts location + creates availability & inventory, marks complete) and `POST /api/onboarding/skip`. Both `dealership_admin` only.
+- Frontend `OnboardingWizard.jsx` rendered as overlay in `Layout.jsx`; "Skip for now" available. Verified via curl + UI (steps, submit closes wizard, dashboard reveal).
+
 ## Notes
 - Emails are SIMULATED (console + `notifications` collection), no real send.
 - Demo credentials in `/app/memory/test_credentials.md`.

@@ -1,5 +1,6 @@
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
+import OnboardingWizard from "@/pages/OnboardingWizard";
 import {
   SquaresFour, Users, CalendarBlank, Car, ChartBar, GearSix, SignOut, Buildings, Robot, Copy,
 } from "@phosphor-icons/react";
@@ -19,9 +20,11 @@ export default function Layout() {
   const navigate = useNavigate();
   const isPlatform = user?.role === "platform_admin";
   const sellUrl = org ? `${window.location.origin}/sell/${org.slug}` : "";
+  const showOnboarding = user?.role === "dealership_admin" && org && org.onboarding_complete !== true;
 
   return (
     <div className="dark min-h-screen bg-background text-foreground flex">
+      {showOnboarding && <OnboardingWizard />}
       {/* sidebar */}
       <aside className="w-16 lg:w-60 shrink-0 border-r border-border flex flex-col bg-card">
         <div className="h-16 flex items-center gap-2 px-4 border-b border-border">

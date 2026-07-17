@@ -1,13 +1,25 @@
-"""AI conversation orchestrator using Gemini 3.1 Pro via emergentintegrations.
-Returns strict structured JSON. Never executes DB/calendar actions directly."""
+"""AI conversation orchestrator using Gemini 3.1 Pro via the official google-genai SDK.
+Uses a user-provided GEMINI_API_KEY. Returns strict structured JSON.
+Never executes DB/calendar actions directly."""
 import os
 import json
 import re
-from emergentintegrations.llm.chat import LlmChat, UserMessage
+from google import genai
+from google.genai import types
 
 MODEL_PROVIDER = "gemini"
-MODEL_NAME = "gemini-3.1-pro-preview"
-PROMPT_VERSION = "orchestrator-v1"
+MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-3.1-pro-preview")
+PROMPT_VERSION = "orchestrator-v2"
+
+_client = None
+
+
+def _get_client():
+    global _client
+    if _client is None:
+        _client = genai.Client(api_key=os.environ["GEMINI_API_KEY"])
+    return _client
+
 
 VALID_NEXT_ACTIONS = {
     "ask_question", "confirm_information", "request_contact_information",
@@ -69,7 +81,7 @@ Only include fields you actually extracted from the LATEST seller message. Use n
 
 
 def _extract_json(text: str) -> dict:
-    text = text.strip()
+    text = (text or "").strip()
     text = re.sub(r"^```(json)?", "", text).strip()
     text = re.sub(r"```$", "", text).strip()
     try:
@@ -104,16 +116,20 @@ async def run_orchestrator(*, dealer_name, policies, stage, state, summary, miss
     history = "\n".join(f"{m['sender_type']}: {m['content']}" for m in recent_messages[-8:])
     prompt = f"Recent conversation:\n{history}\n\nLatest seller message: {seller_message}\n\nReturn the JSON now."
 
-    chat = LlmChat(
-        api_key=os.environ["EMERGENT_LLM_KEY"],
-        session_id=f"orch-{stage}",
-        system_message=system,
-    ).with_model(MODEL_PROVIDER, MODEL_NAME)
+    client = _get_client()
+    config = types.GenerateContentConfig(
+        system_instruction=system,
+        temperature=0.4,
+        response_mime_type="application/json",
+    )
 
     result = {"raw": None, "data": None, "valid": False, "retries": 0}
     for attempt in range(2):
         try:
-            raw = await chat.send_message(UserMessage(text=prompt))
+            resp = await client.aio.models.generate_content(
+                model=MODEL_NAME, contents=prompt, config=config,
+            )
+            raw = resp.text
             result["raw"] = raw
             data = _extract_json(raw)
             if _validate(data):

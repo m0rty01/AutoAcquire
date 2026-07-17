@@ -851,6 +851,61 @@ async def platform_failed(user: dict = Depends(require_roles("platform_admin")))
     return [clean(r) for r in rows]
 
 
+# ---------------- onboarding wizard ----------------
+class OnboardingBody(BaseModel):
+    organization: dict = {}
+    location: dict = {}
+    availability: list = []
+    inventory: list = []
+
+
+@api.post("/onboarding/complete")
+async def onboarding_complete(body: OnboardingBody,
+                              user: dict = Depends(require_roles("dealership_admin"))):
+    org_id = _org(user)
+    org_updates = {**body.organization, "onboarding_complete": True, "updated_at": now_iso()}
+    await db.organizations.update_one({"id": org_id}, {"$set": org_updates})
+
+    loc = await db.dealership_locations.find_one({"organization_id": org_id})
+    if body.location:
+        if loc:
+            await db.dealership_locations.update_one(
+                {"id": loc["id"]}, {"$set": {**body.location, "updated_at": now_iso()}})
+            loc_id = loc["id"]
+        else:
+            loc_id = new_id()
+            await db.dealership_locations.insert_one({
+                "id": loc_id, "organization_id": org_id, "active": True, "country": "CA",
+                "created_at": now_iso(), "updated_at": now_iso(), **body.location})
+    else:
+        loc_id = loc["id"] if loc else None
+
+    for a in body.availability:
+        await db.appointment_availability.insert_one({
+            "id": new_id(), "organization_id": org_id, "dealership_location_id": loc_id,
+            "active": True, "appointment_type": a.get("appointment_type", "in_person_appraisal"),
+            "duration_minutes": a.get("duration_minutes", 45), "buffer_minutes": a.get("buffer_minutes", 15),
+            "capacity": 1, "day_of_week": a.get("day_of_week"), "start_time": a.get("start_time", "09:00"),
+            "end_time": a.get("end_time", "17:00"), "created_at": now_iso(), "updated_at": now_iso()})
+
+    for v in body.inventory:
+        await db.inventory_vehicles.insert_one({
+            "id": new_id(), "organization_id": org_id, "dealership_location_id": loc_id,
+            "source": "onboarding", "status": v.get("status", "available"), "date_added": now_iso(),
+            "created_at": now_iso(), "updated_at": now_iso(), **v})
+
+    await audit(org_id, "user", user["id"], "organization", org_id, "onboarding_complete")
+    return clean(await db.organizations.find_one({"id": org_id}))
+
+
+@api.post("/onboarding/skip")
+async def onboarding_skip(user: dict = Depends(require_roles("dealership_admin"))):
+    await db.organizations.update_one({"id": _org(user)},
+        {"$set": {"onboarding_complete": True, "updated_at": now_iso()}})
+    return {"success": True}
+
+
+
 app.include_router(auth_router)
 app.include_router(api)
 

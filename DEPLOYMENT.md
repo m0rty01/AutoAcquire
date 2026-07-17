@@ -38,7 +38,7 @@ This repo ships a `render.yaml` blueprint that defines both services.
 | `MONGO_URL` | your Atlas SRV string from step 1 |
 | `CORS_ORIGINS` | `https://autoacquire.ravijha.co,https://autoacquire-frontend.onrender.com` |
 | `ADMIN_PASSWORD` | `Admin123!` (or a strong password of your choice) |
-| `EMERGENT_LLM_KEY` | from Emergent → Profile → Universal Key |
+| `GEMINI_API_KEY` | your Google Gemini API key from https://aistudio.google.com/apikey |
 
 `DB_NAME`, `ADMIN_EMAIL`, `PYTHON_VERSION` are preset; `JWT_SECRET` is auto-generated.
 
@@ -80,10 +80,10 @@ On the **frontend** service in Render:
 - **Seed data:** the backend seeds a demo dealership (`Prestige Auto Toronto`, 24 vehicles, sample leads)
   on first startup. Harmless for a demo; remove the `await seed_demo()` call in `backend/server.py`
   startup if you want a clean production DB.
-- **Emergent LLM key:** the AI chat uses your Emergent Universal Key via the `emergentintegrations`
-  library. It calls Emergent's LLM proxy over the internet, so it works off-platform as long as the
-  key is valid and your Emergent balance has credits. If you'd rather not depend on Emergent off-platform,
-  we can swap the AI to a direct Google Gemini API key.
+- **Gemini API key:** the AI chat now uses your own Google Gemini API key (`GEMINI_API_KEY`) via the
+  official `google-genai` SDK — fully independent of Emergent. Model is `gemini-3.1-pro-preview`
+  (override with `GEMINI_MODEL`). If you see `429 RESOURCE_EXHAUSTED`, your free-tier quota is used up —
+  enable billing on the Google Cloud project tied to the key, or wait for the daily quota to reset.
 - **Render free/starter cold starts:** on the free tier the backend sleeps after inactivity and the first
   request takes ~30–50s to wake. Use the **Starter** plan (set in `render.yaml`) to avoid this.
 - **Google Sign-In (Emergent OAuth):** works with the custom domain because redirect URLs are built
