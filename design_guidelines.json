@@ -1,0 +1,200 @@
+{
+  "theme": {
+    "mode": "hybrid",
+    "strategy": "Swiss & High-Contrast (Authority, Clarity, Truth) mixed with Technical Precision.",
+    "public_chat": {
+      "mode": "light",
+      "vibe": "Trustworthy, approachable, transparent, highly legible"
+    },
+    "dashboard": {
+      "mode": "dark",
+      "vibe": "Operational command-center, dense data, high-contrast, authority"
+    }
+  },
+  "typography": {
+    "strategy": "Swiss Brutalist mixed with Data legibility. High-contrast typography hierarchy.",
+    "fonts": {
+      "headings": {
+        "family": "Cabinet Grotesk, sans-serif",
+        "description": "Authoritative and structured. Banned: Inter, Roboto. Used for Hero headings, primary labels, dashboard big numbers.",
+        "weights": ["400", "800", "900"],
+        "tracking": "tracking-tight"
+      },
+      "body": {
+        "family": "IBM Plex Sans, sans-serif",
+        "description": "Clean, technical, highly legible for complex data tables and AI chat responses.",
+        "weights": ["400", "500", "600"],
+        "tracking": "tracking-normal"
+      },
+      "mono": {
+        "family": "IBM Plex Mono, monospace",
+        "description": "Used for data labels, VIN numbers, status tags, and score blocks.",
+        "weights": ["400", "600"],
+        "tracking": "tracking-wider"
+      }
+    },
+    "scale": {
+      "h1": "text-4xl sm:text-5xl lg:text-6xl tracking-tighter font-black",
+      "h2": "text-2xl sm:text-3xl lg:text-4xl tracking-tight font-extrabold",
+      "h3": "text-xl sm:text-2xl tracking-tight font-bold",
+      "metric_value": "text-4xl lg:text-5xl font-black tracking-tighter",
+      "metric_label": "text-xs font-mono uppercase tracking-[0.2em]",
+      "body": "text-base leading-relaxed",
+      "small": "text-sm text-muted-foreground",
+      "chat_bubble": "text-base sm:text-lg leading-relaxed font-medium"
+    }
+  },
+  "colors": {
+    "archetype": "Swiss & High-Contrast",
+    "palette": {
+      "light": {
+        "background": "#FAFAFA",
+        "surface": "#FFFFFF",
+        "border": "rgba(0, 0, 0, 0.1)",
+        "text_primary": "#0A0A0A",
+        "text_secondary": "#525252",
+        "brand": "#2563EB",
+        "accent": "#E53E3E",
+        "success": "#16A34A"
+      },
+      "dark": {
+        "background": "#09090B",
+        "surface": "#121214",
+        "border": "rgba(255, 255, 255, 0.1)",
+        "text_primary": "#FAFAFA",
+        "text_secondary": "#A1A1AA",
+        "brand": "#3B82F6",
+        "accent": "#F87171",
+        "success": "#4ADE80",
+        "warning": "#FBBF24",
+        "score_hot": "#EF4444",
+        "score_warm": "#F97316",
+        "score_nurture": "#EAB308",
+        "score_low": "#64748B"
+      }
+    },
+    "rules": [
+      "Semantic Color Tokens: Use color structurally. Red = Action/Hot Lead/Error, Green = Success, Neutral = Interface.",
+      "The 'Tinted Grey' Rule: Pure #000000 or #808080 is forbidden. Neutral greys must have a subtle blue/cool tint in dark mode.",
+      "Hover Contrast: Must explicitly set text color on hover (e.g., hover:bg-slate-800 hover:text-white).",
+      "Data Colors: Apply distinct color bands to the 0-100 Lead Score metric (Hot > 80, Warm 60-79, Nurture 40-59, Low < 40)."
+    ]
+  },
+  "layouts": {
+    "dashboard": {
+      "strategy": "The High-Density 'Bento' Protocol & Progressive Disclosure",
+      "grid": "Base: grid-cols-1 md:grid-cols-3 lg:grid-cols-4. Gaps: tight (gap-4 or gap-6).",
+      "patterns": [
+        "North Star Metric: Place the most critical metric (e.g., 'Hot Leads Awaiting Action') in the top-left quadrant (F-pattern scan).",
+        "Progressive Disclosure: Default view shows 5-9 core elements. Hide complexity (logs, deep settings) behind drill-downs or sliding panels.",
+        "Collapsible Sidebars: Minimize chrome. Sidebar defaults to icon-only on smaller desktop screens to maximize data real estate.",
+        "No jagged bottoms: Stretch widgets to fill grid rows using h-full."
+      ]
+    },
+    "public_chat": {
+      "strategy": "Mobile-First Conversational UI",
+      "patterns": [
+        "Keyboard Awareness: Message list must push up so the expanding input remains visible without overlapping content.",
+        "Bottom-Sheet UI: Use bottom-sheets/drawers for history and appointment slot pickers instead of desktop-style sidebars.",
+        "Message Chunking: Break long AI replies into scannable chunks (max 60 words per block).",
+        "Tap Targets: Minimum 44x44 points for all buttons (Send, Date Select, Feedback)."
+      ]
+    }
+  },
+  "surfaces_and_visuals": {
+    "styles": {
+      "dashboard_cards": {
+        "name": "GRID BORDERS (The Technical Look)",
+        "rules": "Expose the skeleton. border-collapse style layout. Items have 1px solid borders (border-border). Flat solid surfaces. NO soft shadows. NO glassmorphism in the main data area (avoids visual muddying of metrics). Max 4px border-radius."
+      },
+      "public_chat_header": {
+        "name": "GLASSMORPHISM (The Crystal Variant)",
+        "rules": "Used for sticky chat headers. backdrop-blur-xl or backdrop-blur-2xl with bg-white/70 or bg-white/80. 1px delicate inner stroke at the bottom (border-b border-black/5). Never transparent over scrolling content."
+      },
+      "badges_and_scores": {
+        "name": "NEUMORPHISM (The Tactile Variant)",
+        "rules": "Sharp 1px border combined with high contrast background color for status badges. e.g., bg-red-500/10 border-red-500/20 text-red-500."
+      }
+    },
+    "spacing": "Generous Spacing Philosophy. Use p-6, p-8, p-12 inside containers. Exception: Data tables which require dense padding (p-2 or p-3)."
+  },
+  "components": {
+    "rules": [
+      "Forms/Inputs: Shadcn components heavily customized. Never native.",
+      "Data Tables: Shadcn Table. Must include multi-level filtering and sorting.",
+      "Charts: Shadcn chart components (Recharts). Stick to classic visualizations: Line (trends), Donut (≤3 variables), Bar (comparisons).",
+      "Avatars: Shadcn Avatar. Square avatars for vehicles/dealerships, circular for humans/AI.",
+      "Modals/Drawers: Shadcn Dialog for desktop, Shadcn Drawer (bottom sheet) for mobile chat flows."
+    ],
+    "chat_specific": [
+      "Typing Indicator: 3-dot bouncing animation.",
+      "Expanding Textarea: Use a text-area that auto-grows rather than scrolling horizontally.",
+      "Feedback Loop: Thumbs up/down inline with AI responses."
+    ]
+  },
+  "motion_and_interactions": {
+    "micro_interactions": "Mandatory hover states with explicit transition timing (e.g., transition: transform 0.2s ease, opacity 0.2s ease). Do not use 'transition: all'.",
+    "chat_streaming": "New messages must smoothly animate in (e.g., opacity and slight Y-axis translation). Paused auto-scroll if user scrolls up.",
+    "data_loading": "Use skeleton loaders for dashboard widgets instead of spinning wheels."
+  },
+  "accessibility": {
+    "contrast": "Minimum 4.5:1 for normal text. Explicitly check AI message text against bubble background.",
+    "testing": "All interactive elements (Send button, Appointment slots, Navigation links, Filter toggles) MUST have robust data-testid attributes (e.g., data-testid='chat-send-button').",
+    "motion": "Respect prefers-reduced-motion media query. Add aria-live='polite' to chat stream container."
+  },
+  "icons": {
+    "library": "@phosphor-icons/react",
+    "installation": "yarn add @phosphor-icons/react",
+    "usage": "Use Phosphor icons for dense dashboards. Weight: Regular or Bold. Consistent sizing (16px, 20px, 24px)."
+  },
+  "media": {
+    "image_urls": {
+      "dealership_building": {
+        "url": "https://images.unsplash.com/photo-1780319234030-281034892350?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA1Mjh8MHwxfHNlYXJjaHw0fHxjYXIlMjBkZWFsZXJzaGlwJTIwYnVpbGRpbmd8ZW58MHx8fHwxNzg0MzI0NjM1fDA&ixlib=rb-4.1.0&q=85",
+        "description": "Yellow cars displayed in a building's large glass window.",
+        "usage": "Use as a background for the login/auth screen with a heavy dark overlay (bg-black/60) to maintain high contrast."
+      },
+      "used_cars_inventory": [
+        {
+          "url": "https://images.unsplash.com/photo-1574023240744-64c47c8c0676?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDB8MHwxfHNlYXJjaHwyfHx1c2VkJTIwY2FyJTIwc2FsZXxlbnwwfHx8fDE3ODQzMjQ2MzV8MA&ixlib=rb-4.1.0&q=85",
+          "description": "A row of cars parked in a parking lot.",
+          "usage": "Thumbnail image for the 'Inventory Match' feature in the Dashboard."
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1760312206290-d884595398d9?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjA3MDB8MHwxfHNlYXJjaHw0fHx1c2VkJTIwY2FyJTIwc2FsZXxlbnwwfHx8fDE3ODQzMjQ2MzV8MA&ixlib=rb-4.1.0&q=85",
+          "description": "Maroon vintage car parked in front of brick house.",
+          "usage": "Placeholder for a private seller's vehicle image in the Lead Detail view."
+        }
+      ],
+      "dealership_staff_avatars": [
+        {
+          "url": "https://images.unsplash.com/photo-1519085360753-af0119f7cbe7?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODh8MHwxfHNlYXJjaHwzfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMHBlcnNvbiUyMHBvcnRyYWl0fGVufDB8fHx8MTc4NDMyNDYzNXww&ixlib=rb-4.1.0&q=85",
+          "description": "Man in suit jacket.",
+          "usage": "Avatar for the Dealership Manager / Sales Rep taking over the chat."
+        },
+        {
+          "url": "https://images.unsplash.com/photo-1573496359142-b8d87734a5a2?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NTYxODh8MHwxfHNlYXJjaHwyfHxwcm9mZXNzaW9uYWwlMjBidXNpbmVzcyUyMHBlcnNvbiUyMHBvcnRyYWl0fGVufDB8fHx8MTc4NDMyNDYzNXww&ixlib=rb-4.1.0&q=85",
+          "description": "Woman in gray jacket.",
+          "usage": "Avatar for a Dealership Sales Rep."
+        }
+      ],
+      "ai_avatar": {
+        "url": "https://images.unsplash.com/photo-1535378620166-273708d44e4c?crop=entropy&cs=srgb&fm=jpg&ixid=M3w4NjAzMzN8MHwxfHNlYXJjaHwxfHxmcmllbmRseSUyMHJvYm90JTIwYXZhdGFyfGVufDB8fHx8MTc4NDMyNDY0OXww&ixlib=rb-4.1.0&q=85",
+        "description": "White friendly robot avatar.",
+        "usage": "The avatar representing the AutoAcquire AI in the public seller chat."
+      }
+    ]
+  },
+  "UNIVERSAL_GUIDELINES_FOR_MAIN_AGENT": [
+    "You tend to converge toward generic, 'on distribution' outputs. In frontend design, this creates the 'AI slop' aesthetic. Avoid this: make creative, distinctive frontends that surprise and delight.",
+    "Dark colors look good when used independently without gradients. DO NOT use dark colors as gradients.",
+    "Don't make generic centered layouts, simplistic gradients, and uniform styling.",
+    "Create depth through layered design elements with z-index hierarchy and crisp 1px borders.",
+    "You MUST NOT apply universal transition (e.g., transition: all). Always add transitions for specific interactive properties.",
+    "You MUST NOT center align the app container. Do not add text-align: center to the root App class.",
+    "NEVER use AI assistant Emoji characters like robot, brain, lightbulb for icons. Use the specified Phosphor icons.",
+    "Every interaction needs micro-animations. Static = dead.",
+    "NEVER use placeholder URLs (via.placeholder.com, placehold.it, etc.). Always use the provided media URLs.",
+    "Use sonner for toasts, located in /app/src/components/ui/sonner.tsx, or install if missing."
+  ]
+}
