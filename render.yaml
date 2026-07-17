@@ -1,0 +1,49 @@
+## Render Blueprint for AutoAcquire AI
+## Deploys the FastAPI backend (Web Service) + React frontend (Static Site).
+## MongoDB is hosted separately on MongoDB Atlas (set MONGO_URL below).
+##
+## After connecting this repo on Render (New + > Blueprint), fill in the
+## envVars marked `sync: false` in the Render dashboard.
+
+services:
+  # ---------------- Backend: FastAPI ----------------
+  - type: web
+    name: autoacquire-backend
+    runtime: python
+    rootDir: backend
+    plan: starter
+    buildCommand: "pip install --extra-index-url https://d33sy5i8bnduwe.cloudfront.net/simple/ -r requirements.txt"
+    startCommand: "uvicorn server:app --host 0.0.0.0 --port $PORT"
+    healthCheckPath: /api/public/prestige-auto-toronto
+    envVars:
+      - key: PYTHON_VERSION
+        value: "3.11.9"
+      - key: MONGO_URL          # MongoDB Atlas SRV connection string
+        sync: false
+      - key: DB_NAME
+        value: autoacquire
+      - key: CORS_ORIGINS       # e.g. https://autoacquire.ravijha.co,https://autoacquire-frontend.onrender.com
+        sync: false
+      - key: JWT_SECRET
+        generateValue: true
+      - key: ADMIN_EMAIL
+        value: admin@autoacquire.ai
+      - key: ADMIN_PASSWORD
+        sync: false
+      - key: EMERGENT_LLM_KEY   # from Emergent (Profile > Universal Key)
+        sync: false
+
+  # ---------------- Frontend: React (static) ----------------
+  - type: web
+    name: autoacquire-frontend
+    runtime: static
+    rootDir: frontend
+    buildCommand: "yarn install && yarn build"
+    staticPublishPath: build
+    envVars:
+      - key: REACT_APP_BACKEND_URL   # the deployed backend URL, e.g. https://autoacquire-backend.onrender.com
+        sync: false
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

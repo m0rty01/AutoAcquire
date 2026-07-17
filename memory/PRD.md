@@ -34,6 +34,15 @@ Backend 27/27 pytest pass; Frontend 7/7 flows pass (incl. live Gemini chat). No 
 - Real email (Resend) instead of simulated
 - Rolling-summary auto-regeneration via AI, confidence-based field confirmation UI
 
+## Deployment (2026-06 — self-hosted route chosen by user)
+- Target: Render (frontend static site + backend web service) + MongoDB Atlas.
+- Custom domain: `autoacquire.ravijha.co` (user owns `ravijha.co`) → CNAME to Render frontend.
+- Added `render.yaml` (Blueprint: both services, env vars, SPA rewrite) + `DEPLOYMENT.md` (full guide).
+- Verified: backend imports clean, frontend `yarn build` succeeds.
+- Backend build must use extra index url for emergentintegrations; startCommand binds `$PORT`.
+- Set `CORS_ORIGINS` to the frontend domain(s); `REACT_APP_BACKEND_URL` is build-time on Render.
+- Caveats flagged: EMERGENT_LLM_KEY portability off-platform; demo seed runs on startup; Render cold starts on free tier.
+
 ## Notes
 - Emails are SIMULATED (console + `notifications` collection), no real send.
 - Demo credentials in `/app/memory/test_credentials.md`.
