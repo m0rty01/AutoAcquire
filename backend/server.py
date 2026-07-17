@@ -10,7 +10,7 @@ import io, csv, os
 from db import db, new_id, now_iso, clean, audit, emit_event, notify
 from auth import auth_router, get_current_user, require_roles
 from ai_engine import run_orchestrator, FALLBACK_MESSAGE, MODEL_PROVIDER, MODEL_NAME, PROMPT_VERSION
-from engine import run_qualification, compute_score, match_inventory, generate_slots, SCORE_VERSION
+from engine import run_qualification, compute_score, match_inventory, generate_slots, estimate_financing, SCORE_VERSION
 from seed import seed_demo
 
 logging.basicConfig(level=logging.INFO)
@@ -267,6 +267,36 @@ async def post_public_message(slug: str, conv_id: str, body: MessageBody):
     if next_action == "offer_appointment":
         resp["show_appointments"] = True
     return resp
+
+
+@api.get("/public/{slug}/conversations/{conv_id}/financing-estimate")
+async def public_financing(slug: str, conv_id: str):
+    org = await _get_dealer_by_slug(slug)
+    conv = await db.conversations.find_one({"id": conv_id})
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    lead = await db.leads.find_one({"id": conv["lead_id"]})
+    vehicle = await db.seller_vehicles.find_one({"lead_id": lead["id"]}) or {}
+    pref = await db.inventory_preferences.find_one({"lead_id": lead["id"]}) or {}
+    # replacement price = best matched inventory price, else preference max_price
+    match = await db.inventory_matches.find({"lead_id": lead["id"]}).sort("ranking", 1).to_list(1)
+    replacement_price = None
+    matched_vehicle = None
+    if match:
+        inv = await db.inventory_vehicles.find_one({"id": match[0]["inventory_vehicle_id"]})
+        if inv:
+            replacement_price = inv.get("price")
+            matched_vehicle = f"{inv.get('year')} {inv.get('make')} {inv.get('model')}"
+    if not replacement_price:
+        replacement_price = pref.get("max_price")
+    est = estimate_financing(
+        replacement_price=replacement_price, vehicle=vehicle,
+        loan_balance=vehicle.get("estimated_loan_balance") or 0,
+        tax_rate=0.13, annual_rate=0.0899, term_months=72,
+    )
+    if est.get("available"):
+        est["matched_vehicle"] = matched_vehicle
+    return est
 
 
 @api.get("/public/{slug}/conversations/{conv_id}/appointments/availability")

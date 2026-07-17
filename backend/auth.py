@@ -2,6 +2,7 @@ import os
 import jwt
 import bcrypt
 import secrets
+import requests
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel, EmailStr
@@ -175,3 +176,59 @@ async def reset_password(body: ResetBody):
                               {"$set": {"password_hash": hash_password(body.password)}})
     await db.password_reset_tokens.update_one({"id": rec["id"]}, {"$set": {"used": True}})
     return {"success": True}
+
+
+# --- Emergent Google OAuth bridge: verify identity via Emergent Auth, then mint our JWT ---
+EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
+
+
+@auth_router.post("/google/session")
+async def google_session(request: Request):
+    session_id = request.headers.get("X-Session-ID")
+    if not session_id:
+        raise HTTPException(status_code=400, detail="Missing session id")
+    try:
+        r = requests.get(EMERGENT_SESSION_URL, headers={"X-Session-ID": session_id}, timeout=15)
+        r.raise_for_status()
+        info = r.json()
+    except Exception:
+        raise HTTPException(status_code=401, detail="Google session verification failed")
+
+    email = (info.get("email") or "").lower()
+    name = info.get("name") or email.split("@")[0]
+    picture = info.get("picture")
+    if not email:
+        raise HTTPException(status_code=401, detail="No email returned from Google")
+
+    user = await db.users.find_one({"email": email})
+    if not user:
+        # first Google login → create a dealership organization + admin user
+        parts = name.split(" ", 1)
+        first_name, last_name = parts[0], (parts[1] if len(parts) > 1 else "")
+        org_id = new_id()
+        org_name = f"{first_name}'s Dealership"
+        slug = _slugify(org_name)
+        if await db.organizations.find_one({"slug": slug}):
+            slug = f"{slug}-{org_id[:6]}"
+        await db.organizations.insert_one({
+            "id": org_id, "name": org_name, "slug": slug, "status": "active", "country": "CA",
+            "time_zone": "America/Toronto", "plan": "pilot", "onboarding_complete": False,
+            "created_at": now_iso(), "updated_at": now_iso(),
+        })
+        user_id = new_id()
+        await db.users.insert_one({
+            "id": user_id, "organization_id": org_id, "first_name": first_name, "last_name": last_name,
+            "email": email, "phone": None, "role": "dealership_admin", "status": "active",
+            "auth_provider": "google", "picture": picture, "last_login_at": now_iso(),
+            "created_at": now_iso(), "updated_at": now_iso(),
+        })
+        await audit(org_id, "user", user_id, "user", user_id, "google_register")
+        user = await db.users.find_one({"id": user_id})
+    else:
+        await db.users.update_one({"id": user["id"]},
+                                  {"$set": {"last_login_at": now_iso(), "picture": picture}})
+        await audit(user["organization_id"], "user", user["id"], "user", user["id"], "google_login")
+
+    token = create_access_token(user["id"], email)
+    clean(user); user.pop("password_hash", None)
+    return {"token": token, "user": user}

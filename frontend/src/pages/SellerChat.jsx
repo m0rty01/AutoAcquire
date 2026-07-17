@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import client from "@/lib/api";
-import { Robot, PaperPlaneRight, CheckCircle, CalendarCheck, ShieldCheck } from "@phosphor-icons/react";
+import { Robot, PaperPlaneRight, CheckCircle, CalendarCheck, ShieldCheck, Calculator } from "@phosphor-icons/react";
 
 const AI_AVATAR = "https://images.unsplash.com/photo-1535378620166-273708d44e4c?crop=entropy&cs=srgb&fm=jpg&q=85&w=200";
 const STORAGE_KEY = (slug) => `aa_conv_${slug}`;
@@ -20,6 +20,7 @@ export default function SellerChat() {
   const [sending, setSending] = useState(false);
   const [slots, setSlots] = useState([]);
   const [showSlots, setShowSlots] = useState(false);
+  const [financing, setFinancing] = useState(null);
   const [booked, setBooked] = useState(null);
   const [notFound, setNotFound] = useState(false);
   const scrollRef = useRef(null);
@@ -68,6 +69,9 @@ export default function SellerChat() {
 
   const loadSlots = async () => {
     try {
+      client.get(`/public/${slug}/conversations/${convId}/financing-estimate`)
+        .then((r) => { if (r.data?.available) setFinancing(r.data); })
+        .catch(() => {});
       const { data } = await client.get(`/public/${slug}/conversations/${convId}/appointments/availability`);
       setSlots(data.slots || []);
       setShowSlots(true);
@@ -121,6 +125,10 @@ export default function SellerChat() {
                 <span className="typing-dot" /><span className="typing-dot mx-1" /><span className="typing-dot" />
               </div>
             </div>
+          )}
+
+          {financing && !booked && (
+            <FinancingCard f={financing} />
           )}
 
           {showSlots && !booked && (
@@ -182,6 +190,42 @@ export default function SellerChat() {
     </div>
   );
 }
+
+function money(n) { return `$${Math.round(n).toLocaleString()}`; }
+
+function FinancingCard({ f }) {
+  return (
+    <div className="msg-in bg-white border border-black/10 rounded-2xl p-4 shadow-sm" data-testid="financing-card">
+      <div className="flex items-center gap-2 font-semibold mb-1">
+        <Calculator size={20} weight="bold" className="text-[#2563EB]" /> Financing preview
+      </div>
+      {f.matched_vehicle && <div className="text-sm text-[#525252] mb-3">For a {f.matched_vehicle} at {money(f.replacement_price)}</div>}
+      <div className="grid grid-cols-2 gap-3 text-sm">
+        <Stat label="Est. trade-in value" value={`${money(f.estimated_trade_value.low)}–${money(f.estimated_trade_value.high)}`} />
+        <Stat label="Est. loan balance" value={money(f.estimated_loan_balance)} />
+        <Stat label={f.negative_equity ? "Est. negative equity" : "Est. equity"} value={`${money(f.estimated_equity.low)}–${money(f.estimated_equity.high)}`}
+          accent={f.negative_equity ? "text-[#E53E3E]" : "text-[#16A34A]"} />
+        <Stat label="Est. amount financed" value={`${money(f.amount_financed.low)}–${money(f.amount_financed.high)}`} />
+      </div>
+      <div className="mt-3 rounded-[8px] bg-[#2563EB]/5 border border-[#2563EB]/15 p-3">
+        <div className="text-xs font-mono-plex uppercase tracking-wider text-[#525252]">Est. monthly payment</div>
+        <div className="font-head font-black text-2xl tracking-tighter text-[#2563EB]">
+          {money(f.estimated_monthly_payment.low)}–{money(f.estimated_monthly_payment.high)}<span className="text-sm font-normal text-[#525252]">/mo</span>
+        </div>
+        <div className="text-[11px] text-[#525252] font-mono-plex mt-0.5">
+          {f.assumptions.term_months}mo · ~{(f.assumptions.annual_interest_rate * 100).toFixed(2)}% APR assumption
+        </div>
+      </div>
+      <p className="text-[11px] text-[#525252] mt-3 leading-relaxed">{f.disclaimer}</p>
+    </div>
+  );
+}
+const Stat = ({ label, value, accent }) => (
+  <div>
+    <div className="text-xs font-mono-plex uppercase tracking-wider text-[#525252]">{label}</div>
+    <div className={`font-semibold ${accent || ""}`}>{value}</div>
+  </div>
+);
 
 function Bubble({ msg }) {
   const isSeller = msg.sender_type === "seller";

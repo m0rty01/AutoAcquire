@@ -3,6 +3,75 @@ from datetime import datetime, timedelta, timezone
 
 SCORE_VERSION = "v1"
 
+FINANCING_DISCLAIMER = (
+    "This is an estimate for planning purposes only. Final vehicle value, financing approval, "
+    "interest rate, payment, taxes, fees, and loan terms are determined by the dealership and "
+    "lender after reviewing the full application and vehicle."
+)
+
+
+def estimate_trade_value(vehicle: dict):
+    """Rough trade-in value RANGE (never a guaranteed value)."""
+    if not vehicle:
+        return None
+    asking = vehicle.get("asking_price")
+    if isinstance(asking, (int, float)) and asking > 0:
+        base = asking * 0.88  # dealer trade typically below private-sale asking
+    else:
+        year = vehicle.get("year") or 2015
+        mileage = vehicle.get("mileage") or 120000
+        base = max(1500, (int(year) - 2005) * 1900 - mileage * 0.06)
+    cond = (vehicle.get("condition") or "good").lower()
+    factor = {"excellent": 1.08, "good": 1.0, "fair": 0.9, "poor": 0.78, "damaged": 0.6}.get(cond, 1.0)
+    base *= factor
+    return {"low": round(base * 0.92 / 100) * 100, "high": round(base * 1.06 / 100) * 100}
+
+
+def _monthly_payment(principal: float, annual_rate: float, months: int) -> float:
+    if principal <= 0:
+        return 0.0
+    r = annual_rate / 12
+    if r == 0:
+        return principal / months
+    return principal * r * (1 + r) ** months / ((1 + r) ** months - 1)
+
+
+def estimate_financing(*, replacement_price, vehicle, loan_balance=0, down_payment=0,
+                       tax_rate=0.13, annual_rate=0.0899, term_months=72):
+    """Deterministic approximate financing scenario. Returns a payment RANGE + disclaimer."""
+    if not replacement_price or replacement_price <= 0:
+        return {"available": False}
+    trade = estimate_trade_value(vehicle) or {"low": 0, "high": 0}
+    loan_balance = loan_balance or 0
+    down_payment = down_payment or 0
+
+    equity_low = trade["low"] - loan_balance
+    equity_high = trade["high"] - loan_balance
+
+    taxed_price = replacement_price * (1 + tax_rate)
+    # higher trade equity => lower amount financed => lower payment
+    financed_high = max(0, taxed_price - down_payment - equity_low)
+    financed_low = max(0, taxed_price - down_payment - equity_high)
+
+    pay_low = _monthly_payment(financed_low, annual_rate, term_months)
+    pay_high = _monthly_payment(financed_high, annual_rate, term_months)
+
+    negative_equity = equity_high < 0
+    return {
+        "available": True,
+        "replacement_price": round(replacement_price),
+        "estimated_trade_value": trade,
+        "estimated_loan_balance": round(loan_balance),
+        "down_payment": round(down_payment),
+        "estimated_equity": {"low": round(equity_low), "high": round(equity_high)},
+        "negative_equity": negative_equity,
+        "amount_financed": {"low": round(financed_low), "high": round(financed_high)},
+        "estimated_monthly_payment": {"low": round(pay_low), "high": round(pay_high)},
+        "assumptions": {"tax_rate": tax_rate, "annual_interest_rate": annual_rate,
+                        "term_months": term_months, "payment_frequency": "monthly"},
+        "disclaimer": FINANCING_DISCLAIMER,
+    }
+
 
 def _get_field(state: dict, path: str):
     """Read dotted path from lead state {'seller':..,'vehicle':..,'intent':..}."""
