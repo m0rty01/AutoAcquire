@@ -81,9 +81,10 @@ On the **frontend** service in Render:
   on first startup. Harmless for a demo; remove the `await seed_demo()` call in `backend/server.py`
   startup if you want a clean production DB.
 - **Gemini API key:** the AI chat now uses your own Google Gemini API key (`GEMINI_API_KEY`) via the
-  official `google-genai` SDK — fully independent of Emergent. Model is `gemini-3.1-pro-preview`
-  (override with `GEMINI_MODEL`). If you see `429 RESOURCE_EXHAUSTED`, your free-tier quota is used up —
-  enable billing on the Google Cloud project tied to the key, or wait for the daily quota to reset.
+  official `google-genai` SDK — fully independent of Emergent. Model is `gemini-flash-latest`
+  (works on the free tier; override with `GEMINI_MODEL`). NOTE: `gemini-3.1-pro-preview` requires
+  billing enabled on the Google project (free-tier quota is 0). Enable billing to use 3.1 Pro, then
+  set `GEMINI_MODEL=gemini-3.1-pro-preview`.
 - **Render free/starter cold starts:** on the free tier the backend sleeps after inactivity and the first
   request takes ~30–50s to wake. Use the **Starter** plan (set in `render.yaml`) to avoid this.
 - **Google Sign-In (Emergent OAuth):** works with the custom domain because redirect URLs are built

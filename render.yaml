@@ -33,7 +33,7 @@ services:
       - key: GEMINI_API_KEY     # your Google Gemini API key (aistudio.google.com/apikey)
         sync: false
       - key: GEMINI_MODEL
-        value: gemini-3.1-pro-preview
+        value: gemini-flash-latest
 
   # ---------------- Frontend: React (static) ----------------
   - type: web

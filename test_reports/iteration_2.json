@@ -1,0 +1,33 @@
+{
+  "summary": "Focused backend regression on the public seller AI chat after swap from Emergent LLM key to direct Google Gemini (google-genai SDK) with user's GEMINI_API_KEY and GEMINI_MODEL=gemini-flash-latest. Wrote /app/backend/tests/test_gemini_public_chat.py exercising POST /api/public/prestige-auto-toronto/conversations (start) + POST .../messages (multi-turn). All 3 tests passed. Verified: (1) start returns AI greeting; (2) first seller message 'Hi, I want to sell my 2021 Toyota RAV4 with 42000 km, fully paid off' returns a real, contextual Gemini reply (e.g. \"That's a great vehicle! A 2021 Toyota RAV4 with 42,000 km is highly desirable... could you please share your phone number?\") — NOT the FALLBACK_MESSAGE; (3) ai_active=true, next_action='request_contact_information', model_provider='gemini', model_name='gemini-flash-latest'; (4) extractedFields include vehicle.year=2021, make=Toyota, model=RAV4, mileage=42000, mileage_unit=km, lien_status=none with high confidence; (5) multi-turn follow-up with phone number continues coherently and stores structured_payload. The reported fallback bug is FIXED — direct Gemini integration is functioning end-to-end.",
+  "backend_issues": {
+    "critical": [],
+    "minor": []
+  },
+  "frontend_issues": {
+    "ui_bugs": [],
+    "integration_issues": [],
+    "design_issues": []
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_gemini_public_chat.py",
+    "/app/test_reports/pytest/pytest_gemini_chat.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "ai_engine.py line 141: on exception the raw exception string is stored in result['raw'] but never surfaced anywhere — consider logging exception details (esp. 429/quota errors) via logging.exception so future model-availability issues are diagnosable from backend logs instead of silently falling back.",
+    "ai_engine.py uses os.environ['GEMINI_API_KEY'] which will raise KeyError at first orchestrator call if the env var is missing; consider a startup check that fails fast with a clear message.",
+    "MODEL_NAME is snapshotted at import time from GEMINI_MODEL env; changing the env requires a backend restart. Acceptable, but worth documenting.",
+    "FALLBACK_MESSAGE in ai_engine.py starts with 'Thanks for your message.' while the review_request quoted a slightly different phrasing — cosmetic mismatch only; both contain the 'having trouble processing that right now' snippet which is what the test asserts against."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_gemini_public_chat.py (new)"
+  ],
+  "success_rate": {"backend": "100% (3/3 Gemini chat tests)", "frontend": "not tested (out of scope)"},
+  "test_credentials": "Public seller chat needs no auth. Dealer slug: prestige-auto-toronto. GEMINI_API_KEY already in /app/backend/.env.",
+  "seed_data_creation": "Created a couple of throwaway conversations + leads via the public chat endpoint (unavoidable side-effect of exercising the flow); marked with source=web_conversation, is_test=false but not TEST_-prefixed since the public endpoint doesn't accept that flag.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "Direct Gemini integration confirmed working with gemini-flash-latest. If a future run sees the FALLBACK_MESSAGE again, first check backend logs for google.genai errors (429 quota, 404 model-not-found), then verify GEMINI_MODEL env — the previous failure was because gemini-3.1-pro-preview had 0-quota on the user's key. Existing broader suite /app/backend/tests/backend_test.py from iteration_1 remains valid. If running in parallel, note test_gemini_public_chat starts a fresh conversation per module and depends on live Gemini — could be flaky under provider outage.",
+  "rca of the issue": "Root cause: previous GEMINI_MODEL was 'gemini-3.1-pro-preview' which returns 429 RESOURCE_EXHAUSTED on the user's free-tier key, causing all 2 orchestrator retries to fail -> result['valid']=False -> server.py falls back to FALLBACK_MESSAGE and flips lead to needs_review. Fix (already applied by main agent): set GEMINI_MODEL=gemini-flash-latest in /app/backend/.env. Verification: 3/3 tests pass, real contextual replies observed, model_name field on stored messages now reflects 'gemini-flash-latest'. Mitigation: consider logging Gemini exceptions in ai_engine.run_orchestrator so quota/model errors are visible without needing to bisect."
+}

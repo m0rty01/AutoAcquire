@@ -8,7 +8,7 @@ from google import genai
 from google.genai import types
 
 MODEL_PROVIDER = "gemini"
-MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-3.1-pro-preview")
+MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
 PROMPT_VERSION = "orchestrator-v2"
 
 _client = None
