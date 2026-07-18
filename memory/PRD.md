@@ -45,7 +45,7 @@ Backend 27/27 pytest pass; Frontend 7/7 flows pass (incl. live Gemini chat). No 
 
 ## AI provider (2026-06 — migrated to direct Gemini)
 - Swapped AI orchestrator from Emergent LLM key (emergentintegrations) to the official `google-genai` SDK using the user's own `GEMINI_API_KEY`. Fully independent of Emergent.
-- Model: `gemini-3.1-pro-preview` (override via `GEMINI_MODEL`). Structured JSON via `response_mime_type=application/json`, same 2-retry + validate + human-review fallback.
+- Model: `gemini-flash-latest` (works on the user's free-tier key). NOTE: `gemini-3.1-pro-preview` has free-tier quota 0 on the user's key (429), so it was switched to `gemini-flash-latest`. Override anytime via `GEMINI_MODEL` env (set to `gemini-3.1-pro-preview` once billing is enabled). Structured JSON via `response_mime_type=application/json`, 2-retry + validate + human-review fallback. Gemini errors now logged (logger `autoacquire.ai`).
 - Verified: backend imports/starts clean; key authenticates; chat path fails gracefully to human-review on quota (429). Live AI responses resume when the Google project has quota/billing.
 
 ## Onboarding Wizard (2026-06)

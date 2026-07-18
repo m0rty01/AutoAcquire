@@ -4,8 +4,11 @@ Never executes DB/calendar actions directly."""
 import os
 import json
 import re
+import logging
 from google import genai
 from google.genai import types
+
+logger = logging.getLogger("autoacquire.ai")
 
 MODEL_PROVIDER = "gemini"
 MODEL_NAME = os.environ.get("GEMINI_MODEL", "gemini-flash-latest")
@@ -139,5 +142,7 @@ async def run_orchestrator(*, dealer_name, policies, stage, state, summary, miss
                 return result
         except Exception as e:
             result["raw"] = str(e)
+            logger.warning("Gemini generation failed (model=%s, attempt=%s): %s",
+                           MODEL_NAME, attempt + 1, str(e)[:400])
         result["retries"] = attempt + 1
     return result
