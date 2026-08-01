@@ -34,6 +34,12 @@ Backend 27/27 pytest pass; Frontend 7/7 flows pass (incl. live Gemini chat). No 
 - Real email (Resend) instead of simulated
 - Rolling-summary auto-regeneration via AI, confidence-based field confirmation UI
 
+## Performance fix (2026-06 — slow Leads/Dashboard)
+- Root cause: N+1 queries. `GET /api/leads` ran 3 sequential per-lead DB calls (seller/vehicle/appointment) for up to 2000 leads → ~3s on Atlas; dashboard_home enrich had the same pattern.
+- Fix: batched into a few `$in` queries (sellers/seller_vehicles/appointments) in both `list_leads` and dashboard `enrich`. Added indexes: sellers.id, seller_vehicles.lead_id, appointments.lead_id, appointments(org,status).
+- Result: /api/leads ~12ms locally (was 150 round-trips → 4). Verified iteration_5.json (10/10 backend + frontend renders 50 rows, search/sort/pagination intact).
+- Backlog: list_leads still `.to_list(2000)` then filters in Python; move search+pagination fully into the DB query once an org exceeds a few hundred leads.
+
 ## Auth: real Google OAuth (2026-06 — replaced Emergent bridge)
 - Removed the Emergent-managed Google auth (auth.emergentagent.com redirect + /api/auth/google/session + AuthCallback.jsx). Fully Emergent-free.
 - Now uses Google Identity Services (GIS): frontend renders the official Google button (when REACT_APP_GOOGLE_CLIENT_ID set); backend `POST /api/auth/google` verifies the Google ID token via google-auth (`google.oauth2.id_token.verify_oauth2_token`, GOOGLE_CLIENT_ID env) and reuses the email-matched user/org creation + JWT.
