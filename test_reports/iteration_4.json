@@ -1,0 +1,23 @@
+{
+  "summary": "Auth refactor regression (Emergent-managed Google auth -> real Google Identity Services). Backend: added /app/backend/tests/test_auth_google_regression.py with 6 pytest cases — all 6 PASSED. Verified: email/password login (admin@autoacquire.ai / Admin123!) still returns JWT+user; token authorizes GET /api/auth/me and GET /api/leads (200); wrong password -> 401; NEW POST /api/auth/google returns 401 for an invalid credential and 422 for missing 'credential' field; OLD POST /api/auth/google/session correctly returns 404 (endpoint removed). Frontend (Playwright on public preview URL): /login renders with zero console errors, Google GIS iframe is injected inside [data-testid='google-login-btn'] (1 iframe detected), email/password sign-in as admin lands on /app/dashboard, and all core authenticated pages — Dashboard, Leads, Inventory, Appointments, Analytics, Settings — navigate cleanly with no inline errors and no console errors. All requested regression cases pass.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_auth_google_regression.py",
+    "/app/test_reports/pytest/pytest_iter4.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "auth.py google_login: uses generic `except Exception` for id_token verification. Consider catching google.auth.exceptions.GoogleAuthError specifically and logging the failure reason (aud mismatch vs. expired vs. malformed) — helpful when debugging real-user Google sign-in failures.",
+    "auth.py: no rate limiting on /api/auth/google (or /login). Not blocking, but any brute-attempt against the endpoint is unmetered.",
+    "Login.jsx: setInterval polling for window.google is left running if the component unmounts before GIS loads on very slow networks — cleanup exists, but a hard cap on attempts would guard against pathological cases."
+  ],
+  "updated_files": ["/app/backend/tests/test_auth_google_regression.py"],
+  "success_rate": {"backend": "100% (6/6 new regression tests)", "frontend": "100% (login + Google button render + all 6 core pages)"},
+  "test_credentials": "admin@autoacquire.ai / Admin123! (from /app/memory/test_credentials.md). Real Google sign-in not automatable — validation-only per instructions.",
+  "seed_data_creation": "None. Only read/login operations against seeded admin.",
+  "retest_needed": false,
+  "should_main_agent_self_test": false,
+  "context_for_next_testing_agent": "The Emergent Google auth (session_id hash + /api/auth/google/session) has been fully replaced by real GIS: frontend renders the official Google button when REACT_APP_GOOGLE_CLIENT_ID is set, and backend verifies google ID tokens via google.oauth2.id_token.verify_oauth2_token with GOOGLE_CLIENT_ID from backend/.env. A REAL Google popup CANNOT be completed in automation (Google blocks bots) — only verify iframe injection + endpoint validation (401 for invalid credential, 422 for missing field). Existing regression suites: /app/backend/tests/backend_test.py, test_gemini_public_chat.py, test_auth_google_regression.py.",
+  "rca of the issue": "No bug — regression check requested and passed."
+}

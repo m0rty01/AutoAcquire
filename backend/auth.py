@@ -6,6 +6,8 @@ import requests
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel, EmailStr
+from google.oauth2 import id_token as google_id_token
+from google.auth.transport import requests as google_requests
 from db import db, new_id, now_iso, clean, audit
 
 JWT_ALGORITHM = "HS256"
@@ -178,27 +180,28 @@ async def reset_password(body: ResetBody):
     return {"success": True}
 
 
-# --- Emergent Google OAuth bridge: verify identity via Emergent Auth, then mint our JWT ---
-EMERGENT_SESSION_URL = "https://demobackend.emergentagent.com/auth/v1/env/oauth/session-data"
+# --- Google OAuth (Google Identity Services): verify Google ID token, then mint our JWT ---
+class GoogleLoginBody(BaseModel):
+    credential: str
 
 
-@auth_router.post("/google/session")
-async def google_session(request: Request):
-    session_id = request.headers.get("X-Session-ID")
-    if not session_id:
-        raise HTTPException(status_code=400, detail="Missing session id")
+@auth_router.post("/google")
+async def google_login(body: GoogleLoginBody):
+    client_id = os.environ.get("GOOGLE_CLIENT_ID")
+    if not client_id:
+        raise HTTPException(status_code=500, detail="Google sign-in is not configured")
     try:
-        r = requests.get(EMERGENT_SESSION_URL, headers={"X-Session-ID": session_id}, timeout=15)
-        r.raise_for_status()
-        info = r.json()
+        info = google_id_token.verify_oauth2_token(
+            body.credential, google_requests.Request(), client_id)
     except Exception:
-        raise HTTPException(status_code=401, detail="Google session verification failed")
+        raise HTTPException(status_code=401, detail="Invalid Google credential")
 
     email = (info.get("email") or "").lower()
+    if not email or not info.get("email_verified"):
+        raise HTTPException(status_code=401, detail="Google email not verified")
     name = info.get("name") or email.split("@")[0]
     picture = info.get("picture")
-    if not email:
-        raise HTTPException(status_code=401, detail="No email returned from Google")
+    google_sub = info.get("sub")
 
     user = await db.users.find_one({"email": email})
     if not user:
@@ -219,14 +222,15 @@ async def google_session(request: Request):
         await db.users.insert_one({
             "id": user_id, "organization_id": org_id, "first_name": first_name, "last_name": last_name,
             "email": email, "phone": None, "role": "dealership_admin", "status": "active",
-            "auth_provider": "google", "picture": picture, "last_login_at": now_iso(),
-            "created_at": now_iso(), "updated_at": now_iso(),
+            "auth_provider": "google", "google_sub": google_sub, "picture": picture,
+            "last_login_at": now_iso(), "created_at": now_iso(), "updated_at": now_iso(),
         })
         await audit(org_id, "user", user_id, "user", user_id, "google_register")
         user = await db.users.find_one({"id": user_id})
     else:
         await db.users.update_one({"id": user["id"]},
-                                  {"$set": {"last_login_at": now_iso(), "picture": picture}})
+                                  {"$set": {"last_login_at": now_iso(), "picture": picture,
+                                            "google_sub": google_sub}})
         await audit(user["organization_id"], "user", user["id"], "user", user["id"], "google_login")
 
     token = create_access_token(user["id"], email)

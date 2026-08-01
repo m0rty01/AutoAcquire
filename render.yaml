@@ -45,7 +45,10 @@ services:
     envVars:
       - key: REACT_APP_BACKEND_URL   # the deployed backend URL, e.g. https://autoacquire-backend.onrender.com
         sync: false
+      - key: REACT_APP_GOOGLE_CLIENT_ID   # same Google OAuth Web client ID as the backend
+        sync: false
     routes:
       - type: rewrite
         source: /*
         destination: /index.html
+dex.html

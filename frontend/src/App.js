@@ -1,9 +1,8 @@
-import { BrowserRouter, Routes, Route, Navigate, useLocation } from "react-router-dom";
+import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import Login from "@/pages/Login";
 import ForgotPassword from "@/pages/ForgotPassword";
-import AuthCallback from "@/pages/AuthCallback";
 import SellerChat from "@/pages/SellerChat";
 import Layout from "@/components/Layout";
 import Dashboard from "@/pages/Dashboard";
@@ -25,9 +24,6 @@ function Protected({ children }) {
 }
 
 function RootRouter() {
-  const location = useLocation();
-  // Handle Emergent Google OAuth callback (session_id in URL fragment) before any route/auth check
-  if (location.hash?.includes("session_id=")) return <AuthCallback />;
   return (
     <Routes>
       <Route path="/" element={<Navigate to="/login" replace />} />

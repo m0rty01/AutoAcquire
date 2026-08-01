@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import client, { formatError } from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
@@ -26,11 +26,36 @@ export default function Login() {
     } finally { setLoading(false); }
   };
 
-  // REMINDER: DO NOT HARDCODE THE URL, OR ADD ANY FALLBACKS OR REDIRECT URLS, THIS BREAKS THE AUTH
-  const googleLogin = () => {
-    const redirectUrl = window.location.origin + "/app/dashboard";
-    window.location.href = `https://auth.emergentagent.com/?redirect=${encodeURIComponent(redirectUrl)}`;
-  };
+  const googleBtnRef = useRef(null);
+  const GOOGLE_CLIENT_ID = process.env.REACT_APP_GOOGLE_CLIENT_ID;
+
+  useEffect(() => {
+    if (!GOOGLE_CLIENT_ID) return;
+    const timer = setInterval(() => {
+      if (window.google?.accounts?.id && googleBtnRef.current) {
+        clearInterval(timer);
+        window.google.accounts.id.initialize({
+          client_id: GOOGLE_CLIENT_ID,
+          callback: async (response) => {
+            setError("");
+            try {
+              const { data } = await client.post("/auth/google", { credential: response.credential });
+              login(data.token, data.user);
+              navigate("/app/dashboard");
+            } catch (err) {
+              setError(formatError(err.response?.data?.detail) || "Google sign-in failed");
+            }
+          },
+        });
+        window.google.accounts.id.renderButton(googleBtnRef.current, {
+          theme: "filled_black", size: "large", text: "continue_with",
+          shape: "rectangular", width: 360, logo_alignment: "center",
+        });
+      }
+    }, 50);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return (
     <div className="min-h-screen grid lg:grid-cols-2 bg-background">
@@ -88,17 +113,16 @@ export default function Login() {
             </button>
           </form>
 
-          <div className="flex items-center gap-3 my-5">
-            <div className="h-px flex-1 bg-border" />
-            <span className="text-xs font-mono-plex text-muted-foreground uppercase tracking-wider">or</span>
-            <div className="h-px flex-1 bg-border" />
-          </div>
-
-          <button data-testid="google-login-btn" onClick={googleLogin}
-            className="w-full flex items-center justify-center gap-3 border border-border bg-card rounded-[4px] py-2.5 text-sm font-medium hover:bg-secondary transition-colors duration-200">
-            <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" alt="" className="w-4 h-4" />
-            Continue with Google
-          </button>
+          {GOOGLE_CLIENT_ID && (
+            <>
+              <div className="flex items-center gap-3 my-5">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-xs font-mono-plex text-muted-foreground uppercase tracking-wider">or</span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+              <div data-testid="google-login-btn" ref={googleBtnRef} className="flex justify-center" />
+            </>
+          )}
 
           <div className="mt-8 rounded-[4px] border border-border bg-secondary/50 p-4 text-xs font-mono-plex text-muted-foreground space-y-1">
             <div className="text-foreground font-semibold mb-1">Demo accounts</div>
