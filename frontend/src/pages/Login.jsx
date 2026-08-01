@@ -31,7 +31,9 @@ export default function Login() {
 
   useEffect(() => {
     if (!GOOGLE_CLIENT_ID) return;
+    let attempts = 0;
     const timer = setInterval(() => {
+      if (++attempts > 100) { clearInterval(timer); return; }
       if (window.google?.accounts?.id && googleBtnRef.current) {
         clearInterval(timer);
         window.google.accounts.id.initialize({

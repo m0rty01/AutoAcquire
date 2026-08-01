@@ -34,6 +34,12 @@ Backend 27/27 pytest pass; Frontend 7/7 flows pass (incl. live Gemini chat). No 
 - Real email (Resend) instead of simulated
 - Rolling-summary auto-regeneration via AI, confidence-based field confirmation UI
 
+## Auth: real Google OAuth (2026-06 — replaced Emergent bridge)
+- Removed the Emergent-managed Google auth (auth.emergentagent.com redirect + /api/auth/google/session + AuthCallback.jsx). Fully Emergent-free.
+- Now uses Google Identity Services (GIS): frontend renders the official Google button (when REACT_APP_GOOGLE_CLIENT_ID set); backend `POST /api/auth/google` verifies the Google ID token via google-auth (`google.oauth2.id_token.verify_oauth2_token`, GOOGLE_CLIENT_ID env) and reuses the email-matched user/org creation + JWT.
+- New env vars: backend `GOOGLE_CLIENT_ID`, frontend `REACT_APP_GOOGLE_CLIENT_ID` (same Web OAuth client id). Added to render.yaml + DEPLOYMENT.md. Requires the deploy origins in Google Cloud "Authorized JavaScript origins".
+- Verified (iteration_4.json): 6/6 backend regression + full frontend regression pass. Real Google popup not automatable (expected).
+
 ## Deployment (2026-06 — self-hosted route chosen by user)
 - Target: Render (frontend static site + backend web service) + MongoDB Atlas.
 - Custom domain: `autoacquire.ravijha.co` (user owns `ravijha.co`) → CNAME to Render frontend.
