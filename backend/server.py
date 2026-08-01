@@ -368,11 +368,23 @@ async def list_leads(user: dict = Depends(get_current_user), status: Optional[st
                 "lowest_score": ("score", 1), "recent_activity": ("last_activity_at", -1)}
     sk, sd = sort_map.get(sort, ("created_at", -1))
     leads = await db.leads.find(q).sort(sk, sd).to_list(2000)
-    enriched = []
     for lead in leads:
         clean(lead)
-        seller = await db.sellers.find_one({"id": lead["seller_id"]}) or {}
-        vehicle = await db.seller_vehicles.find_one({"lead_id": lead["id"]}) or {}
+    lead_ids = [l["id"] for l in leads]
+    seller_ids = list({l["seller_id"] for l in leads if l.get("seller_id")})
+    # Batched lookups (avoids N+1 queries against the DB)
+    sellers = {s["id"]: s for s in await db.sellers.find({"id": {"$in": seller_ids}}).to_list(None)}
+    vehicles = {}
+    for v in await db.seller_vehicles.find({"lead_id": {"$in": lead_ids}}).to_list(None):
+        vehicles.setdefault(v["lead_id"], v)
+    appts = {}
+    for a in await db.appointments.find(
+            {"lead_id": {"$in": lead_ids}, "status": {"$in": ["confirmed", "proposed"]}}).to_list(None):
+        appts.setdefault(a["lead_id"], a)
+    enriched = []
+    for lead in leads:
+        seller = sellers.get(lead.get("seller_id")) or {}
+        vehicle = vehicles.get(lead["id"]) or {}
         name = " ".join(filter(None, [seller.get("first_name"), seller.get("last_name")])) or "Unknown seller"
         vlabel = " ".join(str(x) for x in [vehicle.get("year"), vehicle.get("make"), vehicle.get("model")] if x) or "—"
         if search:
@@ -380,7 +392,7 @@ async def list_leads(user: dict = Depends(get_current_user), status: Optional[st
             if (s not in name.lower() and s not in vlabel.lower()
                     and s not in (seller.get("phone") or "").lower() and s not in (seller.get("email") or "").lower()):
                 continue
-        appt = await db.appointments.find_one({"lead_id": lead["id"], "status": {"$in": ["confirmed", "proposed"]}})
+        appt = appts.get(lead["id"])
         enriched.append({**lead, "seller_name": name, "vehicle_label": vlabel,
                          "appointment_status": appt["status"] if appt else None})
     total = len(enriched)
@@ -765,11 +777,18 @@ async def dashboard_home(user: dict = Depends(get_current_user)):
     today_appts = [clean(a) for a in appts if (a.get("start_time") or "").startswith(today)]
 
     async def enrich(ls):
-        out = []
         for l in ls:
             clean(l)
-            seller = await db.sellers.find_one({"id": l["seller_id"]}) or {}
-            v = await db.seller_vehicles.find_one({"lead_id": l["id"]}) or {}
+        lead_ids = [l["id"] for l in ls]
+        seller_ids = list({l["seller_id"] for l in ls if l.get("seller_id")})
+        smap = {s["id"]: s for s in await db.sellers.find({"id": {"$in": seller_ids}}).to_list(None)}
+        vmap = {}
+        for v in await db.seller_vehicles.find({"lead_id": {"$in": lead_ids}}).to_list(None):
+            vmap.setdefault(v["lead_id"], v)
+        out = []
+        for l in ls:
+            seller = smap.get(l.get("seller_id")) or {}
+            v = vmap.get(l["id"]) or {}
             out.append({**l, "seller_name": " ".join(filter(None, [seller.get("first_name"), seller.get("last_name")])) or "Unknown",
                         "vehicle_label": " ".join(str(x) for x in [v.get("year"), v.get("make"), v.get("model")] if x) or "—"})
         return out
@@ -920,6 +939,10 @@ async def startup():
     await db.organizations.create_index("slug", unique=True)
     await db.leads.create_index([("organization_id", 1), ("status", 1)])
     await db.messages.create_index("conversation_id")
+    await db.sellers.create_index("id")
+    await db.seller_vehicles.create_index("lead_id")
+    await db.appointments.create_index("lead_id")
+    await db.appointments.create_index([("organization_id", 1), ("status", 1)])
     await seed_demo()
     logger.info("Startup complete")
 
