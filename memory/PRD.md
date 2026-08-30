@@ -34,6 +34,12 @@ Backend 27/27 pytest pass; Frontend 7/7 flows pass (incl. live Gemini chat). No 
 - Real email (Resend) instead of simulated
 - Rolling-summary auto-regeneration via AI, confidence-based field confirmation UI
 
+## Marketing homepage / landing (2026-08)
+- New `/app/frontend/src/pages/Landing.jsx` is now the root route `/` (was redirect → /login).
+- Dark "Swiss" landing per design_guidelines.json: glass sticky nav, asymmetric hero with a floating qualified-lead card, stats ribbon, how-it-works bento grid, 6 feature cards, For-dealerships split (showroom image), footer CTA.
+- All CTAs (nav Sign in / Get started, hero, dealers, footer) route to `/login` (existing auth flow). Uses @phosphor-icons/react + font-head/font-mono-plex tokens, tailwindcss-animate entrance.
+- Self-tested: renders, fonts loaded, no console errors, nav-signup → /login verified. Frontend-only, no backend change.
+
 ## Domain migration → autonovaia.ca (2026-08) + CORS
 - Site moved from autoacquire.ravijha.co to autonovaia.ca (DNS via Cloudflare → Render).
 - Bug: backend "stopped working" = CORS. Deployed Render `CORS_ORIGINS` still listed only old domains, so requests from https://autonovaia.ca were blocked (no Access-Control-Allow-Origin). Code is env-driven and correct.

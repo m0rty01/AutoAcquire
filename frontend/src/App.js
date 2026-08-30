@@ -2,6 +2,7 @@ import { BrowserRouter, Routes, Route, Navigate } from "react-router-dom";
 import { Toaster } from "@/components/ui/sonner";
 import { AuthProvider, useAuth } from "@/context/AuthContext";
 import Login from "@/pages/Login";
+import Landing from "@/pages/Landing";
 import ForgotPassword from "@/pages/ForgotPassword";
 import SellerChat from "@/pages/SellerChat";
 import Layout from "@/components/Layout";
@@ -26,7 +27,7 @@ function Protected({ children }) {
 function RootRouter() {
   return (
     <Routes>
-      <Route path="/" element={<Navigate to="/login" replace />} />
+      <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
       <Route path="/sell/:slug" element={<SellerChat />} />
