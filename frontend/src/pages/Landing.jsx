@@ -38,7 +38,7 @@ const STATS = [
 
 export default function Landing() {
   return (
-    <div className="min-h-screen bg-background text-foreground antialiased overflow-x-hidden">
+    <div className="dark min-h-screen bg-background text-foreground antialiased overflow-x-hidden">
       {/* NAV */}
       <nav data-testid="landing-nav" className="fixed top-0 inset-x-0 z-50 backdrop-blur-xl bg-black/60 border-b border-white/10">
         <div className="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
@@ -120,7 +120,7 @@ export default function Landing() {
       </section>
 
       {/* HOW IT WORKS — bento */}
-      <section id="how" className="max-w-7xl mx-auto px-6 py-28">
+      <section id="how" className="scroll-mt-24 max-w-7xl mx-auto px-6 py-28">
         <Eyebrow>How it works</Eyebrow>
         <h2 className="mt-3 font-head font-black text-3xl sm:text-4xl tracking-tight text-white max-w-2xl">
           From a cold "is my car worth anything?" to a booked appraisal.
@@ -171,7 +171,7 @@ export default function Landing() {
       </section>
 
       {/* FEATURES */}
-      <section id="features" className="border-t border-white/10 bg-card/30">
+      <section id="features" className="scroll-mt-24 border-t border-white/10 bg-card/30">
         <div className="max-w-7xl mx-auto px-6 py-28">
           <Eyebrow>The platform</Eyebrow>
           <h2 className="mt-3 font-head font-black text-3xl sm:text-4xl tracking-tight text-white max-w-2xl">
@@ -193,7 +193,7 @@ export default function Landing() {
       </section>
 
       {/* FOR DEALERSHIPS */}
-      <section id="dealers" className="max-w-7xl mx-auto px-6 py-32 grid lg:grid-cols-2 gap-14 items-center">
+      <section id="dealers" className="scroll-mt-24 max-w-7xl mx-auto px-6 py-32 grid lg:grid-cols-2 gap-14 items-center">
         <div>
           <Eyebrow>For dealerships</Eyebrow>
           <h2 className="mt-3 font-head font-black text-3xl sm:text-4xl tracking-tight text-white leading-tight">
