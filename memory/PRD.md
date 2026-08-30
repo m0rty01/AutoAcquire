@@ -40,6 +40,12 @@ Backend 27/27 pytest pass; Frontend 7/7 flows pass (incl. live Gemini chat). No 
 - All CTAs (nav Sign in / Get started, hero, dealers, footer) route to `/login` (existing auth flow). Uses @phosphor-icons/react + font-head/font-mono-plex tokens, tailwindcss-animate entrance.
 - Self-tested: renders, fonts loaded, no console errors, nav-signup → /login verified. Frontend-only, no backend change.
 
+## CORS permanent safety net (2026-08)
+- After the autonovaia.ca migration, users kept hitting CORS blocks because the Render backend CORS_ORIGINS env var wasn't updated. Added `allow_origin_regex=r"https://([a-z0-9-]+\.)*(autonovaia\.ca|onrender\.com|ravijha\.co)$"` to CORSMiddleware (alongside the env list) so those domains are ALWAYS allowed regardless of the env var; evil origins still blocked (400). Requires a BACKEND redeploy to take effect.
+- Also fixed a blocking lint: lead-detail endpoint returns `clean(lead)`.
+- Verified iteration_8.json (9/9): CORS preflight for autonovaia.ca/www returns ACAO, evil origin blocked, auth/leads/lead-detail/dashboard regression clean, no _id leak.
+- Two fix paths for user: (a) fastest — set backend CORS_ORIGINS env on Render to include https://autonovaia.ca,https://www.autonovaia.ca (works with current deployed code); (b) permanent — Save to GitHub + redeploy BACKEND to ship the regex net.
+
 ## Domain migration → autonovaia.ca (2026-08) + CORS
 - Site moved from autoacquire.ravijha.co to autonovaia.ca (DNS via Cloudflare → Render).
 - Bug: backend "stopped working" = CORS. Deployed Render `CORS_ORIGINS` still listed only old domains, so requests from https://autonovaia.ca were blocked (no Access-Control-Allow-Origin). Code is env-driven and correct.

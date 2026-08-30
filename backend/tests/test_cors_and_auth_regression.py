@@ -134,3 +134,76 @@ def test_dashboard_home_with_token(admin_token):
         timeout=20,
     )
     assert r.status_code == 200, f"/dashboard/home failed: {r.status_code} {r.text}"
+    data = r.json()
+    # Enriched buckets should be present (allow empty lists but keys must exist)
+    for key in ("new_leads", "hot_leads", "review_leads"):
+        assert key in data, f"dashboard/home missing key {key}: {list(data.keys())}"
+
+
+def _has_no_objectid(obj):
+    """Recursively assert no bson.ObjectId leakage (and _id not present)."""
+    from bson import ObjectId  # type: ignore
+    if isinstance(obj, dict):
+        assert "_id" not in obj, f"_id leaked in dict: keys={list(obj.keys())}"
+        for v in obj.values():
+            _has_no_objectid(v)
+    elif isinstance(obj, list):
+        for v in obj:
+            _has_no_objectid(v)
+    else:
+        assert not isinstance(obj, ObjectId), "ObjectId leaked into response"
+
+
+def test_leads_list_enriched(admin_token):
+    """GET /api/leads returns enriched pagination with seller_name/vehicle_label/appointment_status."""
+    r = requests.get(
+        f"{BASE_URL}/api/leads?page=1&page_size=10",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        timeout=20,
+    )
+    assert r.status_code == 200, f"/leads failed: {r.status_code} {r.text}"
+    data = r.json()
+    assert isinstance(data, dict), f"expected paginated dict, got {type(data)}"
+    for key in ("items", "total", "page", "page_size"):
+        assert key in data, f"missing pagination key {key}"
+    items = data["items"]
+    assert isinstance(items, list)
+    if items:
+        first = items[0]
+        # Enrichment fields
+        for f in ("seller_name", "vehicle_label", "appointment_status"):
+            assert f in first, f"lead item missing enrichment field {f}: {list(first.keys())}"
+
+
+def test_lead_detail_no_objectid_leak(admin_token):
+    """GET /api/leads/{id} — regression for clean(lead) fix. Must be 200 and valid JSON with no ObjectId leak."""
+    # Get a real lead id
+    r = requests.get(
+        f"{BASE_URL}/api/leads?page=1&page_size=5",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        timeout=20,
+    )
+    assert r.status_code == 200
+    items = r.json().get("items", [])
+    if not items:
+        pytest.skip("No leads available to test detail endpoint")
+    lead_id = items[0]["id"]
+
+    r = requests.get(
+        f"{BASE_URL}/api/leads/{lead_id}",
+        headers={"Authorization": f"Bearer {admin_token}"},
+        timeout=20,
+    )
+    assert r.status_code == 200, f"/leads/{lead_id} failed: {r.status_code} {r.text}"
+    # Must be valid JSON
+    data = r.json()
+    # Expected keys per problem statement
+    expected_keys = ["lead", "seller", "vehicle", "conversation", "messages",
+                     "score", "matches", "appointment", "notes"]
+    for k in expected_keys:
+        assert k in data, f"lead-detail response missing key {k}: {list(data.keys())}"
+    # lead must be a dict with an id matching
+    assert isinstance(data["lead"], dict)
+    assert data["lead"].get("id") == lead_id
+    # No ObjectId / _id leakage anywhere
+    _has_no_objectid(data)

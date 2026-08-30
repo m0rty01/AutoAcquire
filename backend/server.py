@@ -421,7 +421,7 @@ async def get_lead(lead_id: str, user: dict = Depends(get_current_user)):
     appt = await db.appointments.find_one({"lead_id": lead_id})
     notes = await db.internal_notes.find({"lead_id": lead_id}).sort("created_at", -1).to_list(100)
     audits = await db.audit_events.find({"entity_id": lead_id}).sort("created_at", -1).to_list(50)
-    return {"lead": lead, "seller": clean(seller) if seller else None,
+    return {"lead": clean(lead), "seller": clean(seller) if seller else None,
             "vehicle": clean(vehicle) if vehicle else None, "conversation": clean(conv) if conv else None,
             "messages": messages, "score": clean(score[0]) if score else None, "matches": match_out,
             "appointment": clean(appt) if appt else None, "notes": [clean(n) for n in notes],
@@ -928,9 +928,14 @@ async def onboarding_skip(user: dict = Depends(require_roles("dealership_admin")
 app.include_router(auth_router)
 app.include_router(api)
 
-app.add_middleware(CORSMiddleware, allow_credentials=True,
-                   allow_origins=os.environ.get("CORS_ORIGINS", "*").split(","),
-                   allow_methods=["*"], allow_headers=["*"])
+_cors_env = [o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()]
+app.add_middleware(
+    CORSMiddleware,
+    allow_credentials=True,
+    allow_origins=_cors_env,
+    allow_origin_regex=r"https://([a-z0-9-]+\.)*(autonovaia\.ca|onrender\.com|ravijha\.co)$",
+    allow_methods=["*"], allow_headers=["*"],
+)
 
 
 @app.on_event("startup")

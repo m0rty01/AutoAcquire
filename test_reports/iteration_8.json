@@ -1,0 +1,35 @@
+{
+  "summary": "Backend regression after CORS regex + clean(lead) edits. Ran 9 pytest cases against direct backend (CORS preflight) and preview URL (auth/leads/dashboard/public). All 9 passed. No ObjectId/_id leakage detected in /api/leads/{id} response.",
+  "backend_issues": {"critical": [], "minor": []},
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "verification_details": {
+    "cors_preflight_autonovaia_ca": "OPTIONS /api/auth/login → 200, ACAO=https://autonovaia.ca, ACA-Credentials=true, POST in allow-methods",
+    "cors_preflight_www_autonovaia_ca": "OPTIONS /api/auth/login → 200, ACAO=https://www.autonovaia.ca, ACA-Credentials=true",
+    "cors_actual_post": "POST /api/auth/login with Origin https://autonovaia.ca → 200, ACAO present ('*' or origin as expected under CORS_ORIGINS='*')",
+    "auth_login": "admin@autoacquire.ai / Admin123! → 200 with token + user.email match",
+    "auth_me": "GET /api/auth/me with Bearer → 200, user.email == admin@autoacquire.ai",
+    "leads_list": "GET /api/leads?page=1&page_size=10 → 200, paginated dict with items/total/page/page_size; items include seller_name, vehicle_label, appointment_status",
+    "lead_detail": "GET /api/leads/{id} → 200, JSON body includes lead/seller/vehicle/conversation/messages/score/matches/appointment/notes; recursive scan found no bson.ObjectId or '_id' keys",
+    "dashboard_home": "GET /api/dashboard/home → 200 with keys new_leads/hot_leads/review_leads",
+    "public_dealership": "GET /api/public/prestige-auto-toronto → 200"
+  },
+  "test_report_links": [
+    "/app/backend/tests/test_cors_and_auth_regression.py",
+    "/app/test_reports/pytest/iteration_8.xml"
+  ],
+  "action_items": [],
+  "critical_code_review_comments": [
+    "server.py is ~959 lines — approaching the 700-line split threshold. Consider extracting routers (leads, dashboard, public, auth) into modules for maintainability.",
+    "Lead-detail endpoint calls clean(lead) once at line 408 and again inside the return dict at line 424 — the second call is a no-op since clean() mutates in place, but the redundancy is a code-smell worth cleaning up (either remove the earlier standalone clean(lead) or drop the second one).",
+    "allow_origin_regex correctly locks to autonovaia.ca / onrender.com / ravijha.co subdomains — safe permanent net."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_cors_and_auth_regression.py (added test_leads_list_enriched, test_lead_detail_no_objectid_leak, and enrichment-key check on test_dashboard_home_with_token)"
+  ],
+  "success_rate": {"backend": "100% (9/9)", "frontend": "n/a"},
+  "test_credentials": "admin@autoacquire.ai / Admin123! (worked)",
+  "seed_data_creation": "none — used existing seeded lead from prestige-auto-toronto",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Backend regression suite is stable in /app/backend/tests/test_cors_and_auth_regression.py — 9 tests, ~2s runtime. CORS preflight tests intentionally hit http://localhost:8001 (DIRECT) because the preview ingress rewrites CORS headers; production Render deploy will use CORS_ORIGINS env list + allow_origin_regex."
+}
