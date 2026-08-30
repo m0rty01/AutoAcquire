@@ -32,7 +32,7 @@ export default function Layout() {
             <Robot size={20} weight="bold" className="text-white" />
           </div>
           <span className="hidden lg:block font-head font-black tracking-tight text-lg leading-none">
-            AutoAcquire<span className="text-primary">AI</span>
+            AutoNova<span className="text-primary">AI</span>
           </span>
         </div>
         <nav className="flex-1 py-4 space-y-1 px-2">

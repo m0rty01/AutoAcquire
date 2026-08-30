@@ -69,7 +69,7 @@ export default function Login() {
           <div className="w-9 h-9 rounded-[4px] bg-primary flex items-center justify-center">
             <Robot size={22} weight="bold" />
           </div>
-          <span className="font-head font-black text-xl tracking-tight">AutoAcquire<span className="text-primary">AI</span></span>
+          <span className="font-head font-black text-xl tracking-tight">AutoNova<span className="text-primary">AI</span></span>
         </div>
         <div className="relative text-white max-w-md">
           <h1 className="font-head font-black text-4xl lg:text-5xl tracking-tighter leading-[1.05]">
@@ -89,7 +89,7 @@ export default function Login() {
             <div className="w-9 h-9 rounded-[4px] bg-primary flex items-center justify-center">
               <Robot size={22} weight="bold" className="text-white" />
             </div>
-            <span className="font-head font-black text-xl tracking-tight">AutoAcquire<span className="text-primary">AI</span></span>
+            <span className="font-head font-black text-xl tracking-tight">AutoNova<span className="text-primary">AI</span></span>
           </div>
           <h2 className="font-head font-extrabold text-2xl tracking-tight">Sign in</h2>
           <p className="text-sm text-muted-foreground mt-1">Dealership workspace access.</p>

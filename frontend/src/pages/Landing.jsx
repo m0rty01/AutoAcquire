@@ -16,7 +16,7 @@ const Logo = () => (
     <div className="w-9 h-9 rounded-[4px] bg-primary flex items-center justify-center shadow-[0_0_24px_rgba(37,99,235,0.45)]">
       <Robot size={22} weight="bold" className="text-white" />
     </div>
-    <span className="font-head font-black text-xl tracking-tight text-white">AutoAcquire<span className="text-primary">AI</span></span>
+    <span className="font-head font-black text-xl tracking-tight text-white">AutoNova<span className="text-primary">AI</span></span>
   </div>
 );
 
@@ -74,7 +74,7 @@ export default function Landing() {
               Turn seller conversations into <span className="text-primary">booked appointments.</span>
             </h1>
             <p className="mt-6 text-base sm:text-lg text-muted-foreground leading-relaxed max-w-xl">
-              AutoAcquire AI qualifies private vehicle sellers, scores every lead on explainable rules, matches your inventory, estimates financing, and books the appraisal — so your team only works the deals worth working.
+              AutoNova AI qualifies private vehicle sellers, scores every lead on explainable rules, matches your inventory, estimates financing, and books the appraisal — so your team only works the deals worth working.
             </p>
             <div className="mt-9 flex flex-wrap items-center gap-4">
               <Link to="/login" data-testid="hero-signup-button"
@@ -200,7 +200,7 @@ export default function Landing() {
             Stop chasing tire-kickers. Start filling the appraisal lane.
           </h2>
           <p className="mt-5 text-muted-foreground leading-relaxed">
-            AutoAcquire runs 24/7 as your acquisition front-desk. Set your rules once — mileage caps, allowed makes, hours — and let the AI qualify and book while your team focuses on closing.
+            AutoNova runs 24/7 as your acquisition front-desk. Set your rules once — mileage caps, allowed makes, hours — and let the AI qualify and book while your team focuses on closing.
           </p>
           <ul className="mt-8 space-y-4">
             {[
@@ -250,7 +250,7 @@ export default function Landing() {
               <a href="#features" className="hover:text-foreground transition-colors duration-200">Features</a>
               <Link to="/login" data-testid="footer-nav-signin" className="hover:text-foreground transition-colors duration-200">Sign in</Link>
             </div>
-            <div className="font-mono-plex text-[11px] text-muted-foreground/60 tracking-wider">© 2026 AutoAcquire AI</div>
+            <div className="font-mono-plex text-[11px] text-muted-foreground/60 tracking-wider">© 2026 AutoNova AI</div>
           </div>
         </div>
       </footer>
