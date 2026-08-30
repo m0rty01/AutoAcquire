@@ -62,7 +62,7 @@ export default function Landing() {
       </nav>
 
       {/* HERO */}
-      <header className="relative pt-36 pb-24 px-6">
+      <header className="relative pt-28 md:pt-36 pb-16 md:pb-24 px-6">
         <div className="pointer-events-none absolute -top-40 -left-40 w-[36rem] h-[36rem] rounded-full" style={{ background: "radial-gradient(circle, rgba(37,99,235,0.18), transparent 60%)" }} />
         <div className="max-w-7xl mx-auto grid lg:grid-cols-12 gap-12 items-center relative">
           <div className="lg:col-span-7 animate-in fade-in slide-in-from-bottom-4 duration-700">
@@ -91,7 +91,7 @@ export default function Landing() {
           {/* hero visual */}
           <div className="lg:col-span-5 relative animate-in fade-in slide-in-from-bottom-6 duration-1000">
             <div className="relative rounded-[8px] border border-white/10 overflow-hidden shadow-[0_0_60px_rgba(37,99,235,0.15)]">
-              <img src={HERO_IMG} alt="" className="w-full h-72 object-cover opacity-70" />
+              <img src={HERO_IMG} alt="" className="w-full h-56 md:h-72 object-cover opacity-70" />
               <div className="absolute inset-0 bg-black/50" />
               {/* floating qualified-lead card */}
               <div className="absolute inset-x-4 bottom-4 rounded-[6px] border border-white/15 bg-black/70 backdrop-blur-md p-4">
@@ -120,13 +120,13 @@ export default function Landing() {
       </section>
 
       {/* HOW IT WORKS — bento */}
-      <section id="how" className="scroll-mt-24 max-w-7xl mx-auto px-6 py-28">
+      <section id="how" className="scroll-mt-24 max-w-7xl mx-auto px-6 py-20 md:py-28">
         <Eyebrow>How it works</Eyebrow>
         <h2 className="mt-3 font-head font-black text-3xl sm:text-4xl tracking-tight text-white max-w-2xl">
           From a cold "is my car worth anything?" to a booked appraisal.
         </h2>
         <div className="mt-12 grid grid-cols-1 md:grid-cols-12 gap-6">
-          <div className="md:col-span-8 rounded-[6px] border border-border bg-card p-8 hover:border-white/20 transition-colors duration-200">
+          <div className="md:col-span-8 rounded-[6px] border border-border bg-card p-6 md:p-8 hover:border-white/20 transition-colors duration-200">
             <div className="flex items-center gap-3">
               <ChatCircleDots size={22} weight="bold" className="text-primary" />
               <span className="font-mono-plex text-[11px] uppercase tracking-widest text-muted-foreground">Step 01 · Conversation</span>
@@ -136,7 +136,7 @@ export default function Landing() {
               It extracts the vehicle, mileage, condition, ownership status, and the seller's real intent — sell, trade, or upgrade — without a single form field.
             </p>
           </div>
-          <div className="md:col-span-4 rounded-[6px] border border-border bg-card p-8 hover:border-white/20 transition-colors duration-200">
+          <div className="md:col-span-4 rounded-[6px] border border-border bg-card p-6 md:p-8 hover:border-white/20 transition-colors duration-200">
             <div className="flex items-center gap-3">
               <ChartLineUp size={22} weight="bold" className="text-primary" />
               <span className="font-mono-plex text-[11px] uppercase tracking-widest text-muted-foreground">Step 02 · Scoring</span>
@@ -144,7 +144,7 @@ export default function Landing() {
             <h3 className="mt-4 font-head font-bold text-2xl text-white">Every lead scored</h3>
             <p className="mt-3 text-muted-foreground leading-relaxed">Fixed, explainable rules decide who's hot — no black box.</p>
           </div>
-          <div className="md:col-span-4 rounded-[6px] border border-border bg-card p-8 hover:border-white/20 transition-colors duration-200">
+          <div className="md:col-span-4 rounded-[6px] border border-border bg-card p-6 md:p-8 hover:border-white/20 transition-colors duration-200">
             <div className="flex items-center gap-3">
               <Car size={22} weight="bold" className="text-primary" />
               <span className="font-mono-plex text-[11px] uppercase tracking-widest text-muted-foreground">Step 03 · Match</span>
@@ -152,7 +152,7 @@ export default function Landing() {
             <h3 className="mt-4 font-head font-bold text-2xl text-white">Inventory match</h3>
             <p className="mt-3 text-muted-foreground leading-relaxed">Upgraders are paired with cars you actually have on the lot.</p>
           </div>
-          <div className="md:col-span-8 rounded-[6px] border border-border bg-card p-8 hover:border-white/20 transition-colors duration-200 flex flex-col justify-between">
+          <div className="md:col-span-8 rounded-[6px] border border-border bg-card p-6 md:p-8 hover:border-white/20 transition-colors duration-200 flex flex-col justify-between">
             <div>
               <div className="flex items-center gap-3">
                 <CalendarCheck size={22} weight="bold" className="text-primary" />
@@ -172,7 +172,7 @@ export default function Landing() {
 
       {/* FEATURES */}
       <section id="features" className="scroll-mt-24 border-t border-white/10 bg-card/30">
-        <div className="max-w-7xl mx-auto px-6 py-28">
+        <div className="max-w-7xl mx-auto px-6 py-20 md:py-28">
           <Eyebrow>The platform</Eyebrow>
           <h2 className="mt-3 font-head font-black text-3xl sm:text-4xl tracking-tight text-white max-w-2xl">
             Everything acquisition needs, in one deterministic system.
@@ -180,7 +180,7 @@ export default function Landing() {
           <div className="mt-12 grid grid-cols-1 md:grid-cols-3 gap-6">
             {FEATURES.map((f) => (
               <div key={f.title} data-testid={`feature-${f.title.toLowerCase().replace(/\s+/g, "-")}`}
-                className="group rounded-[6px] border border-border bg-background p-8 hover:border-white/20 hover:-translate-y-1 transition-[transform,border-color] duration-200">
+                className="group rounded-[6px] border border-border bg-background p-6 md:p-8 hover:border-white/20 hover:-translate-y-1 transition-[transform,border-color] duration-200">
                 <div className="w-11 h-11 rounded-[4px] bg-primary/10 border border-primary/20 flex items-center justify-center group-hover:bg-primary/20 transition-colors duration-200">
                   <f.icon size={22} weight="bold" className="text-primary" />
                 </div>
@@ -193,7 +193,7 @@ export default function Landing() {
       </section>
 
       {/* FOR DEALERSHIPS */}
-      <section id="dealers" className="scroll-mt-24 max-w-7xl mx-auto px-6 py-32 grid lg:grid-cols-2 gap-14 items-center">
+      <section id="dealers" className="scroll-mt-24 max-w-7xl mx-auto px-6 py-20 md:py-32 grid lg:grid-cols-2 gap-10 md:gap-14 items-center">
         <div>
           <Eyebrow>For dealerships</Eyebrow>
           <h2 className="mt-3 font-head font-black text-3xl sm:text-4xl tracking-tight text-white leading-tight">
@@ -227,8 +227,8 @@ export default function Landing() {
 
       {/* FOOTER CTA */}
       <footer className="border-t border-white/10">
-        <div className="max-w-7xl mx-auto px-6 py-24">
-          <div className="rounded-[8px] border border-white/10 bg-card p-10 sm:p-14 text-center relative overflow-hidden">
+        <div className="max-w-7xl mx-auto px-6 py-16 md:py-24">
+          <div className="rounded-[8px] border border-white/10 bg-card p-8 sm:p-14 text-center relative overflow-hidden">
             <div className="pointer-events-none absolute -top-24 left-1/2 -translate-x-1/2 w-[30rem] h-[30rem] rounded-full" style={{ background: "radial-gradient(circle, rgba(37,99,235,0.16), transparent 60%)" }} />
             <h2 className="relative font-head font-black text-3xl sm:text-5xl tracking-tighter text-white">Ready to acquire?</h2>
             <p className="relative mt-4 text-muted-foreground max-w-xl mx-auto">Spin up your dealership workspace in minutes and put your seller intake on autopilot.</p>
