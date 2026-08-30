@@ -34,6 +34,13 @@ Backend 27/27 pytest pass; Frontend 7/7 flows pass (incl. live Gemini chat). No 
 - Real email (Resend) instead of simulated
 - Rolling-summary auto-regeneration via AI, confidence-based field confirmation UI
 
+## Domain migration → autonovaia.ca (2026-08) + CORS
+- Site moved from autoacquire.ravijha.co to autonovaia.ca (DNS via Cloudflare → Render).
+- Bug: backend "stopped working" = CORS. Deployed Render `CORS_ORIGINS` still listed only old domains, so requests from https://autonovaia.ca were blocked (no Access-Control-Allow-Origin). Code is env-driven and correct.
+- FIX (Render dashboard, user action): set backend `CORS_ORIGINS=https://autonovaia.ca,https://www.autonovaia.ca,https://autoacquire-frontend.onrender.com`. Also add both to Google OAuth Authorized JavaScript origins.
+- WARNING: never use `*` in prod — with allow_credentials=True browsers reject it. Use explicit origins.
+- Verified iteration_6.json (7/7): CORS reflects allowed origins + auth flows OK. Updated render.yaml + DEPLOYMENT.md to new domain.
+
 ## Performance fix (2026-06 — slow Leads/Dashboard)
 - Root cause: N+1 queries. `GET /api/leads` ran 3 sequential per-lead DB calls (seller/vehicle/appointment) for up to 2000 leads → ~3s on Atlas; dashboard_home enrich had the same pattern.
 - Fix: batched into a few `$in` queries (sellers/seller_vehicles/appointments) in both `list_leads` and dashboard `enrich`. Added indexes: sellers.id, seller_vehicles.lead_id, appointments.lead_id, appointments(org,status).

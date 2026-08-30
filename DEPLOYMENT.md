@@ -1,6 +1,6 @@
 # Deploying AutoAcquire AI — Render (frontend + backend) + MongoDB Atlas
 
-Custom domain target: **https://autoacquire.ravijha.co** (root domain `ravijha.co`).
+Custom domain target: **https://autonovaia.ca** (root domain `autonovaia.ca`, DNS via Cloudflare).
 
 Architecture after deploy:
 - **Frontend (React)** → Render Static Site → served at `autoacquire.ravijha.co`
@@ -36,7 +36,7 @@ This repo ships a `render.yaml` blueprint that defines both services.
 | Key | Value |
 |-----|-------|
 | `MONGO_URL` | your Atlas SRV string from step 1 |
-| `CORS_ORIGINS` | `https://autoacquire.ravijha.co,https://autoacquire-frontend.onrender.com` |
+| `CORS_ORIGINS` | `https://autonovaia.ca,https://www.autonovaia.ca,https://autoacquire-frontend.onrender.com` |
 | `ADMIN_PASSWORD` | `Admin123!` (or a strong password of your choice) |
 | `GEMINI_API_KEY` | your Google Gemini API key from https://aistudio.google.com/apikey |
 
@@ -72,7 +72,7 @@ On the **frontend** service in Render:
    Propagation is usually 5–15 min (up to 24h max).
 
 > After the domain is live, make sure `CORS_ORIGINS` on the **backend** includes
-> `https://autoacquire.ravijha.co` (it does per step 2). If you edit it, redeploy the backend.
+> `https://autonovaia.ca` and `https://www.autonovaia.ca`. If you edit it, the backend redeploys automatically.
 
 ---
 

@@ -1,0 +1,33 @@
+{
+  "summary": "Verified CORS middleware mechanism and auth regression for AutoAcquire AI backend after migration to https://autonovaia.ca. 7/7 backend tests pass. Preflight (OPTIONS) for both https://autonovaia.ca and https://www.autonovaia.ca correctly returns access-control-allow-origin reflecting the exact requesting origin AND access-control-allow-credentials: true. Auth login (admin@autoacquire.ai/Admin123!) returns JWT + user; token authorizes /api/auth/me, /api/leads, /api/dashboard/home. Public dealership endpoint /api/public/prestige-auto-toronto returns 200.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "OPTIONS/POST /api/*", "issue": "Preview public URL (dealer-lead-hub.preview.emergentagent.com) is fronted by an ingress/Cloudflare layer that OVERWRITES the Starlette CORS response headers with generic 'Access-Control-Allow-Origin: *' and DROPS Access-Control-Allow-Credentials entirely. This masks the real backend CORS behavior when curling the preview URL. Only observable via localhost:8001 direct hit. Production (Render) is not behind this proxy so real CORSMiddleware headers will be delivered — no action needed for the app itself, but be aware when debugging."},
+      {"endpoint": "CORSMiddleware", "issue": "With CORS_ORIGINS='*' + allow_credentials=True, Starlette returns 'Access-Control-Allow-Origin: *' AND 'Access-Control-Allow-Credentials: true' on actual (non-preflight) responses. Browsers reject that combination per CORS spec. It only works because Starlette still reflects the origin on preflight, and browsers cache preflight. Recommend never using '*' in production — always set CORS_ORIGINS to an explicit comma-separated list (which is what production Render must do)."}
+    ]
+  },
+  "frontend_issues": {"ui_bugs": [], "integration_issues": [], "design_issues": []},
+  "test_report_links": [
+    "/app/backend/tests/test_cors_and_auth_regression.py",
+    "/app/test_reports/pytest/cors_auth_results.xml"
+  ],
+  "action_items": [
+    "PRODUCTION FIX (outside this env): On Render, set backend env var CORS_ORIGINS='https://autonovaia.ca,https://www.autonovaia.ca' (add any other prod/staging origins as needed). Do NOT use '*' in production because combined with allow_credentials=True it violates the CORS spec.",
+    "Optional hardening: in server.py, if CORS_ORIGINS='*' is detected together with allow_credentials=True, log a warning at startup so this misconfig is caught early."
+  ],
+  "critical_code_review_comments": [
+    "server.py line 931-933: allow_origins=os.environ.get('CORS_ORIGINS','*').split(',') — code is correct and env-driven, but the default of '*' combined with allow_credentials=True is unsafe (browsers reject). Consider defaulting to an empty list or an explicit dev origin, and validating the env at startup.",
+    "server.py is 954 lines — approaching the split threshold; consider modularizing routers (auth/leads/dashboard/public) into separate files."
+  ],
+  "updated_files": [
+    "/app/backend/tests/test_cors_and_auth_regression.py"
+  ],
+  "success_rate": {"backend": "100% (7/7)", "frontend": "N/A (skipped per request)"},
+  "test_credentials": "admin@autoacquire.ai / Admin123! (from /app/memory/test_credentials.md)",
+  "seed_data_creation": "None — used existing seeded admin.",
+  "retest_needed": false,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "CORS assertions must be run against localhost:8001 (DIRECT_URL) — the preview Kubernetes/Cloudflare ingress overwrites CORS response headers with a generic '*' and hides Starlette's real behavior. The functional auth/api tests can run against the preview REACT_APP_BACKEND_URL fine. Test file supports env var DIRECT_BACKEND_URL override.",
+  "rca of the issue": "User reported CORS block on https://autonovaia.ca after DNS migration. Root cause: deployed backend's CORS_ORIGINS env var on Render still listed only the OLD domains (autoacquire.ravijha.co) — so Starlette's CORSMiddleware did not match https://autonovaia.ca and did not emit any Access-Control-Allow-Origin header for it. Mitigation: update CORS_ORIGINS on Render dashboard to include https://autonovaia.ca (and https://www.autonovaia.ca) as comma-separated values, then redeploy/restart. Preview verification here confirmed the code mechanism itself is correct — when the origin is in the allow list (or '*' in preview), preflight correctly reflects the origin with credentials=true."
+}

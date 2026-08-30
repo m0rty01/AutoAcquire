@@ -22,7 +22,7 @@ services:
         sync: false
       - key: DB_NAME
         value: autoacquire
-      - key: CORS_ORIGINS       # e.g. https://autoacquire.ravijha.co,https://autoacquire-frontend.onrender.com
+      - key: CORS_ORIGINS       # e.g. https://autonovaia.ca,https://www.autonovaia.ca,https://<your-frontend>.onrender.com
         sync: false
       - key: JWT_SECRET
         generateValue: true
