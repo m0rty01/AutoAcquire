@@ -3,7 +3,7 @@ import client, { API } from "@/lib/api";
 import { PageHeader, Loading, Empty } from "@/components/Bits";
 import { titleize } from "@/components/ui/badges";
 import { toast } from "sonner";
-import { UploadSimple, DownloadSimple, Plus, MagnifyingGlass } from "@phosphor-icons/react";
+import { UploadSimple, DownloadSimple, Plus, MagnifyingGlass, Broadcast, ArrowsClockwise, Copy } from "@phosphor-icons/react";
 
 export default function Inventory() {
   const [data, setData] = useState(null);
@@ -11,10 +11,31 @@ export default function Inventory() {
   const [importResult, setImportResult] = useState(null);
   const [showAdd, setShowAdd] = useState(false);
   const [form, setForm] = useState({ status: "available" });
+  const [showFeed, setShowFeed] = useState(false);
+  const [feedCfg, setFeedCfg] = useState(null);
   const fileRef = useRef(null);
 
   const load = () => client.get("/inventory", { params: { search, page_size: 200 } }).then((r) => setData(r.data));
   useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [search]);
+
+  const loadFeed = async () => {
+    if (!showFeed && !feedCfg) {
+      try { const { data } = await client.get("/inventory/feed-config"); setFeedCfg(data); }
+      catch { toast.error("Only dealership admins/managers can view the data feed"); return; }
+    }
+    setShowFeed(!showFeed);
+  };
+
+  const regenFeed = async () => {
+    if (!window.confirm("Regenerate the feed key? The current connection details will stop working immediately.")) return;
+    try {
+      const { data } = await client.post("/inventory/feed-config/regenerate");
+      setFeedCfg((c) => ({ ...c, ...data }));
+      toast.success("New feed key generated");
+    } catch { toast.error("Failed to regenerate key"); }
+  };
+
+  const copy = (text) => { navigator.clipboard.writeText(text); toast.success("Copied"); };
 
   const upload = async (e) => {
     const file = e.target.files?.[0];
@@ -55,6 +76,7 @@ export default function Inventory() {
       <PageHeader title="Inventory" subtitle={data ? `${data.total} vehicles` : ""}>
         <div className="flex gap-2 flex-wrap">
           <button data-testid="download-template-btn" onClick={downloadTemplate} className="flex items-center gap-1.5 text-xs bg-secondary hover:bg-accent px-3 py-2 rounded-[4px] transition-colors duration-200"><DownloadSimple size={14} /> Template</button>
+          <button data-testid="data-feed-btn" onClick={loadFeed} className="flex items-center gap-1.5 text-xs bg-secondary hover:bg-accent px-3 py-2 rounded-[4px] transition-colors duration-200"><Broadcast size={14} /> Data feed</button>
           <label data-testid="import-csv-btn" className="flex items-center gap-1.5 text-xs bg-secondary hover:bg-accent px-3 py-2 rounded-[4px] cursor-pointer transition-colors duration-200">
             <UploadSimple size={14} /> Import CSV
             <input ref={fileRef} type="file" accept=".csv" className="hidden" onChange={upload} />
@@ -62,6 +84,42 @@ export default function Inventory() {
           <button data-testid="add-vehicle-btn" onClick={() => setShowAdd(!showAdd)} className="flex items-center gap-1.5 text-xs bg-primary text-primary-foreground px-3 py-2 rounded-[4px] hover:opacity-90 transition-opacity duration-200"><Plus size={14} weight="bold" /> Add vehicle</button>
         </div>
       </PageHeader>
+
+      {showFeed && feedCfg && (
+        <div data-testid="feed-config-panel" className="border border-primary/30 bg-primary/5 rounded-[4px] p-4 mb-4">
+          <div className="flex items-start justify-between gap-3 mb-3">
+            <div>
+              <div className="text-sm font-semibold flex items-center gap-1.5"><Broadcast size={16} className="text-primary" /> Automated inventory feed</div>
+              <p className="text-xs text-muted-foreground mt-1 max-w-2xl">Give this secure endpoint to your DMS/inventory provider. They POST the CSV export (multipart <span className="font-mono-plex">file</span> field) to this URL and inventory syncs automatically. Anyone with the URL can push, so treat it like a password.</p>
+            </div>
+            <button data-testid="regen-feed-btn" onClick={regenFeed} className="flex items-center gap-1.5 text-xs bg-secondary hover:bg-accent px-3 py-2 rounded-[4px] transition-colors duration-200 shrink-0"><ArrowsClockwise size={14} /> Regenerate key</button>
+          </div>
+
+          <label className="text-xs font-mono-plex uppercase tracking-wider text-muted-foreground">Push URL (HTTPS)</label>
+          <div className="flex items-center gap-2 mt-1 mb-3">
+            <input data-testid="feed-push-url" readOnly value={feedCfg.push_url} className="flex-1 rounded-[4px] border border-input bg-card px-2 py-1.5 text-xs font-mono-plex outline-none" />
+            <button data-testid="copy-feed-url-btn" onClick={() => copy(feedCfg.push_url)} className="flex items-center gap-1.5 text-xs bg-secondary hover:bg-accent px-3 py-1.5 rounded-[4px] transition-colors duration-200"><Copy size={14} /> Copy</button>
+          </div>
+
+          <div className="text-xs text-muted-foreground font-mono-plex bg-card border border-border rounded-[4px] p-2 mb-3 overflow-x-auto">
+            curl -X POST "{feedCfg.push_url}" -F "file=@inventory_export.csv"
+          </div>
+
+          {feedCfg.recent_imports?.length > 0 && (
+            <div>
+              <div className="text-xs font-mono-plex uppercase tracking-wider text-muted-foreground mb-1">Recent feed syncs</div>
+              {feedCfg.recent_imports.map((r) => (
+                <div key={r.id} data-testid="feed-import-row" className="text-xs text-muted-foreground flex gap-3 py-0.5">
+                  <span className="font-mono-plex">{new Date(r.created_at).toLocaleString()}</span>
+                  <span className="text-green-400">+{r.imported} new</span>
+                  <span className="text-blue-400">{r.updated} updated</span>
+                  {r.errors?.length > 0 && <span className="text-amber-400">{r.errors.length} skipped</span>}
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
 
       {showAdd && (
         <div className="border border-border rounded-[4px] bg-card p-4 mb-4 grid grid-cols-2 sm:grid-cols-4 gap-3">

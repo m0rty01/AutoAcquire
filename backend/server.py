@@ -1,11 +1,11 @@
 import logging
 from datetime import datetime, timezone
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Header
 from fastapi.responses import PlainTextResponse
 from starlette.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
-import io, csv, os
+import io, csv, os, secrets
 
 from db import db, new_id, now_iso, clean, audit, emit_event, notify
 from auth import auth_router, get_current_user, require_roles
@@ -564,15 +564,13 @@ async def inventory_template():
     return buf.getvalue()
 
 
-@api.post("/inventory/import")
-async def import_inventory(file: UploadFile = File(...),
-                           user: dict = Depends(require_roles("dealership_admin", "dealership_manager"))):
-    content = (await file.read()).decode("utf-8", errors="ignore")
+async def _run_csv_import(org_id: str, content: str, source: str = "csv"):
+    """Shared CSV import used by both authenticated upload and the token feed endpoint."""
     reader = csv.DictReader(io.StringIO(content))
     missing_cols = [c for c in ["stock_number", "make", "model", "year", "price"] if c not in (reader.fieldnames or [])]
     if missing_cols:
         raise HTTPException(status_code=400, detail=f"Missing required columns: {', '.join(missing_cols)}")
-    loc = await db.dealership_locations.find_one({"organization_id": _org(user)})
+    loc = await db.dealership_locations.find_one({"organization_id": org_id})
     imported, updated, errors = 0, 0, []
     for idx, row in enumerate(reader, start=2):
         try:
@@ -590,19 +588,79 @@ async def import_inventory(file: UploadFile = File(...),
                    "seating_capacity": int(row["seating_capacity"]) if row.get("seating_capacity") else None,
                    "location": row.get("location"), "status": (row.get("status") or "available").strip().lower(),
                    "vehicle_url": row.get("vehicle_url"), "image_url": row.get("image_url"), "updated_at": now_iso()}
-            existing = await db.inventory_vehicles.find_one({"organization_id": _org(user), "stock_number": stock})
+            existing = await db.inventory_vehicles.find_one({"organization_id": org_id, "stock_number": stock})
             if existing:
                 await db.inventory_vehicles.update_one({"id": existing["id"]}, {"$set": doc}); updated += 1
             else:
-                await db.inventory_vehicles.insert_one({"id": new_id(), "organization_id": _org(user),
-                    "dealership_location_id": loc["id"] if loc else None, "source": "csv",
+                await db.inventory_vehicles.insert_one({"id": new_id(), "organization_id": org_id,
+                    "dealership_location_id": loc["id"] if loc else None, "source": source,
                     "date_added": now_iso(), "created_at": now_iso(), **doc}); imported += 1
         except Exception as e:
             errors.append({"row": idx, "error": str(e)})
-    await db.inventory_imports.insert_one({"id": new_id(), "organization_id": _org(user), "imported": imported,
-        "updated": updated, "errors": errors, "created_at": now_iso()})
-    await emit_event(_org(user), "inventory.imported", "inventory", "batch", {"imported": imported, "updated": updated})
+    await db.inventory_imports.insert_one({"id": new_id(), "organization_id": org_id, "source": source,
+        "imported": imported, "updated": updated, "errors": errors, "created_at": now_iso()})
+    await emit_event(org_id, "inventory.imported", "inventory", "batch",
+                     {"imported": imported, "updated": updated, "source": source})
     return {"imported": imported, "updated": updated, "errors": errors}
+
+
+@api.post("/inventory/import")
+async def import_inventory(file: UploadFile = File(...),
+                           user: dict = Depends(require_roles("dealership_admin", "dealership_manager"))):
+    content = (await file.read()).decode("utf-8", errors="ignore")
+    return await _run_csv_import(_org(user), content, source="csv")
+
+
+def _mask_token(tok: str) -> str:
+    return f"{tok[:6]}\u2026{tok[-4:]}" if tok and len(tok) > 12 else tok
+
+
+async def _get_or_create_feed_token(org_id: str) -> str:
+    org = await db.organizations.find_one({"id": org_id})
+    tok = (org or {}).get("inventory_feed_token")
+    if not tok:
+        tok = secrets.token_urlsafe(24)
+        await db.organizations.update_one({"id": org_id},
+            {"$set": {"inventory_feed_token": tok, "updated_at": now_iso()}})
+    return tok
+
+
+@api.get("/inventory/feed-config")
+async def inventory_feed_config(user: dict = Depends(require_roles("dealership_admin", "dealership_manager"))):
+    tok = await _get_or_create_feed_token(_org(user))
+    base = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+    recent = await db.inventory_imports.find({"organization_id": _org(user), "source": "feed"}) \
+        .sort("created_at", -1).to_list(10)
+    return {
+        "token_masked": _mask_token(tok),
+        "push_url": f"{base}/api/inventory/feed?token={tok}" if base else f"/api/inventory/feed?token={tok}",
+        "header_name": "X-Feed-Token",
+        "recent_imports": [clean(r) for r in recent],
+    }
+
+
+@api.post("/inventory/feed-config/regenerate")
+async def regenerate_feed_token(user: dict = Depends(require_roles("dealership_admin"))):
+    tok = secrets.token_urlsafe(24)
+    await db.organizations.update_one({"id": _org(user)},
+        {"$set": {"inventory_feed_token": tok, "updated_at": now_iso()}})
+    base = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+    return {"token_masked": _mask_token(tok),
+            "push_url": f"{base}/api/inventory/feed?token={tok}" if base else f"/api/inventory/feed?token={tok}"}
+
+
+@api.post("/inventory/feed")
+async def inventory_feed(file: UploadFile = File(...), token: Optional[str] = None,
+                         x_feed_token: Optional[str] = Header(default=None)):
+    """Token-authenticated CSV ingestion for external DMS / inventory feeds (SFTP alternative)."""
+    supplied = token or x_feed_token
+    if not supplied:
+        raise HTTPException(status_code=401, detail="Missing feed token")
+    org = await db.organizations.find_one({"inventory_feed_token": supplied})
+    if not org:
+        raise HTTPException(status_code=403, detail="Invalid feed token")
+    content = (await file.read()).decode("utf-8", errors="ignore")
+    return await _run_csv_import(org["id"], content, source="feed")
 
 
 class InventoryBody(BaseModel):

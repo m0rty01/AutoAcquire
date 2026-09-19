@@ -88,3 +88,18 @@ Backend 27/27 pytest pass; Frontend 7/7 flows pass (incl. live Gemini chat). No 
 ## Notes
 - Emails are SIMULATED (console + `notifications` collection), no real send.
 - Demo credentials in `/app/memory/test_credentials.md`.
+
+## Inventory Data Feed / DMS ingestion (2026-06-19)
+- Client requirement: dealership's DMS/inventory provider wants to push an inventory data export; asked for SFTP folder + required file format.
+- Delivered (per user choice): (a) formal spec doc + (b) in-app secure HTTPS ingestion. SFTP kept as client's own infra (guidance only).
+- Backend (`server.py`):
+  - Refactored CSV import into shared `_run_csv_import(org_id, content, source)`; `/inventory/import` now uses it.
+  - `GET /api/inventory/feed-config` (admin/manager) → masked token, absolute `push_url`, `X-Feed-Token` header name, recent feed imports.
+  - `POST /api/inventory/feed-config/regenerate` (admin) → rotates key.
+  - `POST /api/inventory/feed?token=...` OR header `X-Feed-Token` → token-authenticated CSV ingest (no JWT), source="feed". Bad token → 403.
+  - Token stored on `organizations.inventory_feed_token` (secrets.token_urlsafe(24)).
+  - New env `PUBLIC_BASE_URL` in backend/.env (preview value set). **On Render set PUBLIC_BASE_URL to the production API domain** so the push URL shown to providers is correct.
+- Frontend (`Inventory.jsx`): "Data feed" button → panel with copyable push URL, curl example, regenerate key, recent syncs. Testids: data-feed-btn, feed-config-panel, feed-push-url, copy-feed-url-btn, regen-feed-btn, feed-import-row.
+- Verified: curl (feed-config, push CSV imports 1, bad token 403) + UI screenshot (panel renders, pushed vehicle FEED001 appears in list).
+- Docs generated in `/app/frontend/public/`: `AutoNova_AI_Project_Scope_Proposal.docx`, `AutoNova_AI_Inventory_Data_Feed_Specification.docx` (both downloadable via public URL).
+
