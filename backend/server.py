@@ -564,19 +564,26 @@ async def inventory_template():
     return buf.getvalue()
 
 
-async def _run_csv_import(org_id: str, content: str, source: str = "csv"):
+async def _run_csv_import(org_id: str, content: str, source: str = "csv", mode: str = "incremental"):
     """Shared CSV import used by both authenticated upload and the token feed endpoint."""
     reader = csv.DictReader(io.StringIO(content))
     missing_cols = [c for c in ["stock_number", "make", "model", "year", "price"] if c not in (reader.fieldnames or [])]
     if missing_cols:
-        raise HTTPException(status_code=400, detail=f"Missing required columns: {', '.join(missing_cols)}")
+        detail = f"Missing required columns: {', '.join(missing_cols)}"
+        await db.inventory_imports.insert_one({"id": new_id(), "organization_id": org_id, "source": source,
+            "status": "failed", "mode": mode, "imported": 0, "updated": 0, "deactivated": 0,
+            "errors": [{"row": 1, "error": detail}], "created_at": now_iso()})
+        if source == "feed":
+            await notify(org_id, "dealership", org_id, "in_app", "feed_sync_failed", {"error": detail})
+        raise HTTPException(status_code=400, detail=detail)
     loc = await db.dealership_locations.find_one({"organization_id": org_id})
-    imported, updated, errors = 0, 0, []
+    imported, updated, errors, seen = 0, 0, [], set()
     for idx, row in enumerate(reader, start=2):
         try:
             stock = (row.get("stock_number") or "").strip()
             if not stock or not row.get("make"):
                 errors.append({"row": idx, "error": "Missing stock_number or make"}); continue
+            seen.add(stock)
             doc = {"stock_number": stock, "vin": row.get("vin"), "make": row.get("make"),
                    "model": row.get("model"), "trim": row.get("trim"),
                    "year": int(row["year"]) if row.get("year") else None,
@@ -597,11 +604,22 @@ async def _run_csv_import(org_id: str, content: str, source: str = "csv"):
                     "date_added": now_iso(), "created_at": now_iso(), **doc}); imported += 1
         except Exception as e:
             errors.append({"row": idx, "error": str(e)})
+    deactivated = 0
+    if mode == "full" and source == "feed" and seen:
+        res = await db.inventory_vehicles.update_many(
+            {"organization_id": org_id, "source": "feed", "stock_number": {"$nin": list(seen)},
+             "status": {"$ne": "unavailable"}},
+            {"$set": {"status": "unavailable", "updated_at": now_iso()}})
+        deactivated = res.modified_count
     await db.inventory_imports.insert_one({"id": new_id(), "organization_id": org_id, "source": source,
-        "imported": imported, "updated": updated, "errors": errors, "created_at": now_iso()})
+        "status": "completed", "mode": mode, "imported": imported, "updated": updated,
+        "deactivated": deactivated, "errors": errors, "created_at": now_iso()})
     await emit_event(org_id, "inventory.imported", "inventory", "batch",
-                     {"imported": imported, "updated": updated, "source": source})
-    return {"imported": imported, "updated": updated, "errors": errors}
+                     {"imported": imported, "updated": updated, "deactivated": deactivated, "source": source})
+    if source == "feed" and errors:
+        await notify(org_id, "dealership", org_id, "in_app", "feed_sync_skipped",
+                     {"skipped": len(errors), "imported": imported, "updated": updated})
+    return {"imported": imported, "updated": updated, "deactivated": deactivated, "errors": errors}
 
 
 @api.post("/inventory/import")
@@ -629,11 +647,13 @@ async def _get_or_create_feed_token(org_id: str) -> str:
 async def inventory_feed_config(user: dict = Depends(require_roles("dealership_admin", "dealership_manager"))):
     tok = await _get_or_create_feed_token(_org(user))
     base = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+    push = f"{base}/api/inventory/feed?token={tok}" if base else f"/api/inventory/feed?token={tok}"
     recent = await db.inventory_imports.find({"organization_id": _org(user), "source": "feed"}) \
         .sort("created_at", -1).to_list(10)
     return {
         "token_masked": _mask_token(tok),
-        "push_url": f"{base}/api/inventory/feed?token={tok}" if base else f"/api/inventory/feed?token={tok}",
+        "push_url": push,
+        "full_push_url": f"{push}&mode=full",
         "header_name": "X-Feed-Token",
         "recent_imports": [clean(r) for r in recent],
     }
@@ -645,12 +665,12 @@ async def regenerate_feed_token(user: dict = Depends(require_roles("dealership_a
     await db.organizations.update_one({"id": _org(user)},
         {"$set": {"inventory_feed_token": tok, "updated_at": now_iso()}})
     base = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
-    return {"token_masked": _mask_token(tok),
-            "push_url": f"{base}/api/inventory/feed?token={tok}" if base else f"/api/inventory/feed?token={tok}"}
+    push = f"{base}/api/inventory/feed?token={tok}" if base else f"/api/inventory/feed?token={tok}"
+    return {"token_masked": _mask_token(tok), "push_url": push, "full_push_url": f"{push}&mode=full"}
 
 
 @api.post("/inventory/feed")
-async def inventory_feed(file: UploadFile = File(...), token: Optional[str] = None,
+async def inventory_feed(file: UploadFile = File(...), token: Optional[str] = None, mode: str = "incremental",
                          x_feed_token: Optional[str] = Header(default=None)):
     """Token-authenticated CSV ingestion for external DMS / inventory feeds (SFTP alternative)."""
     supplied = token or x_feed_token
@@ -660,7 +680,8 @@ async def inventory_feed(file: UploadFile = File(...), token: Optional[str] = No
     if not org:
         raise HTTPException(status_code=403, detail="Invalid feed token")
     content = (await file.read()).decode("utf-8", errors="ignore")
-    return await _run_csv_import(org["id"], content, source="feed")
+    return await _run_csv_import(org["id"], content, source="feed",
+                                 mode="full" if mode == "full" else "incremental")
 
 
 class InventoryBody(BaseModel):

@@ -225,6 +225,7 @@ add_body(
     "The key may alternatively be sent as an HTTP header named X-Feed-Token instead of in the URL query string, "
     "if the provider prefers to keep it out of the URL.", space_after=4
 )
+add_bullet("A second \u201cfull snapshot\u201d URL (same address with &mode=full) is available in the dashboard. Use it when sending the complete current inventory \u2014 any feed vehicle absent from that file is automatically marked unavailable (see Section 6). Use the plain URL for partial/incremental updates.", bold_prefix="Full vs incremental \u2014 ")
 
 add_sub("Method B \u2014 SFTP Drop (client-hosted)")
 add_body(
@@ -248,7 +249,7 @@ add_heading("6.  Sync Behaviour & Validation")
 add_bullet("Each row is matched by stock_number. If it already exists, the record is updated; otherwise a new vehicle is created (upsert).", bold_prefix="Upsert \u2014 ")
 add_bullet("Rows missing a stock_number or make are skipped and reported; valid rows in the same file still import.", bold_prefix="Partial success \u2014 ")
 add_bullet("Every delivery returns a summary of created, updated, and skipped rows. Recent syncs are visible in the dashboard under Inventory \u2192 Data feed.", bold_prefix="Reporting \u2014 ")
-add_bullet("Send the full current inventory on each export. Vehicles no longer present can be marked with status = sold to remove them from matching.", bold_prefix="Removals \u2014 ")
+add_bullet("When delivering via the full-snapshot URL (&mode=full), send the entire current inventory in one file; any feed-sourced vehicle missing from that file is automatically set to status = unavailable and removed from matching. The incremental URL never removes vehicles.", bold_prefix="Removals \u2014 ")
 add_bullet("Prices and mileage must be digits only. Non-numeric values in numeric fields cause that single row to be skipped and reported.", bold_prefix="Data types \u2014 ")
 
 # ---- 7. CHECKLIST ----

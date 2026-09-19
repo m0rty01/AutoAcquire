@@ -103,3 +103,9 @@ Backend 27/27 pytest pass; Frontend 7/7 flows pass (incl. live Gemini chat). No 
 - Verified: curl (feed-config, push CSV imports 1, bad token 403) + UI screenshot (panel renders, pushed vehicle FEED001 appears in list).
 - Docs generated in `/app/frontend/public/`: `AutoNova_AI_Project_Scope_Proposal.docx`, `AutoNova_AI_Inventory_Data_Feed_Specification.docx` (both downloadable via public URL).
 
+## Feed enhancements (2026-06-19)
+- **Sold Auto-Cleanup**: feed endpoint accepts `mode=full`. Full-snapshot uploads mark feed-sourced vehicles missing from the file as `status=unavailable` (incremental never removes). feed-config now returns `full_push_url`. Verified via curl (deactivated count) + UI.
+- **Feed Alerts (in-app only)**: failed syncs (missing required cols → records failed import + `notify` template `feed_sync_failed`, HTTP 400) and skipped rows (`notify` `feed_sync_skipped`) recorded to `notifications`. Inventory page shows an amber warning banner (testid `feed-warning-banner`) when the latest feed import failed/skipped; "Review" opens the panel.
+- Field-mapping screen: SKIPPED per user (defaults assumed) — canonical column names used as-is.
+- inventory_imports docs now carry `status` (completed/failed), `mode`, `deactivated`. Recent syncs row shows new/updated/hidden/skipped/failed + `full` tag.
+

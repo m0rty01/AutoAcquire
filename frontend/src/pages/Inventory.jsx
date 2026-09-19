@@ -3,7 +3,7 @@ import client, { API } from "@/lib/api";
 import { PageHeader, Loading, Empty } from "@/components/Bits";
 import { titleize } from "@/components/ui/badges";
 import { toast } from "sonner";
-import { UploadSimple, DownloadSimple, Plus, MagnifyingGlass, Broadcast, ArrowsClockwise, Copy } from "@phosphor-icons/react";
+import { UploadSimple, DownloadSimple, Plus, MagnifyingGlass, Broadcast, ArrowsClockwise, Copy, Warning } from "@phosphor-icons/react";
 
 export default function Inventory() {
   const [data, setData] = useState(null);
@@ -17,14 +17,18 @@ export default function Inventory() {
 
   const load = () => client.get("/inventory", { params: { search, page_size: 200 } }).then((r) => setData(r.data));
   useEffect(() => { const t = setTimeout(load, 300); return () => clearTimeout(t); }, [search]);
+  useEffect(() => { client.get("/inventory/feed-config").then((r) => setFeedCfg(r.data)).catch(() => {}); }, []);
 
-  const loadFeed = async () => {
-    if (!showFeed && !feedCfg) {
-      try { const { data } = await client.get("/inventory/feed-config"); setFeedCfg(data); }
-      catch { toast.error("Only dealership admins/managers can view the data feed"); return; }
-    }
+  const lastFeed = feedCfg?.recent_imports?.[0];
+  const feedIssue = lastFeed && (lastFeed.status === "failed" || (lastFeed.errors?.length > 0));
+
+  const loadFeed = () => {
+    if (!feedCfg) { toast.error("Only dealership admins/managers can view the data feed"); return; }
+    if (!showFeed) refreshFeed();
     setShowFeed(!showFeed);
   };
+
+  const refreshFeed = () => client.get("/inventory/feed-config").then((r) => setFeedCfg(r.data)).catch(() => {});
 
   const regenFeed = async () => {
     if (!window.confirm("Regenerate the feed key? The current connection details will stop working immediately.")) return;
@@ -85,6 +89,18 @@ export default function Inventory() {
         </div>
       </PageHeader>
 
+      {feedIssue && !showFeed && (
+        <div data-testid="feed-warning-banner" className="border border-amber-500/30 bg-amber-500/10 rounded-[4px] p-3 mb-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-sm text-amber-300">
+            <Warning size={18} weight="fill" />
+            {lastFeed.status === "failed"
+              ? <span>Last inventory feed sync <span className="font-semibold">failed</span> ({lastFeed.errors?.[0]?.error || "invalid file"}).</span>
+              : <span>Last inventory feed sync skipped <span className="font-semibold">{lastFeed.errors.length}</span> row(s).</span>}
+          </div>
+          <button data-testid="view-feed-issue-btn" onClick={() => setShowFeed(true)} className="text-xs bg-secondary hover:bg-accent px-3 py-1.5 rounded-[4px] transition-colors duration-200 shrink-0">Review</button>
+        </div>
+      )}
+
       {showFeed && feedCfg && (
         <div data-testid="feed-config-panel" className="border border-primary/30 bg-primary/5 rounded-[4px] p-4 mb-4">
           <div className="flex items-start justify-between gap-3 mb-3">
@@ -95,11 +111,18 @@ export default function Inventory() {
             <button data-testid="regen-feed-btn" onClick={regenFeed} className="flex items-center gap-1.5 text-xs bg-secondary hover:bg-accent px-3 py-2 rounded-[4px] transition-colors duration-200 shrink-0"><ArrowsClockwise size={14} /> Regenerate key</button>
           </div>
 
-          <label className="text-xs font-mono-plex uppercase tracking-wider text-muted-foreground">Push URL (HTTPS)</label>
+          <label className="text-xs font-mono-plex uppercase tracking-wider text-muted-foreground">Push URL — incremental (adds & updates)</label>
           <div className="flex items-center gap-2 mt-1 mb-3">
             <input data-testid="feed-push-url" readOnly value={feedCfg.push_url} className="flex-1 rounded-[4px] border border-input bg-card px-2 py-1.5 text-xs font-mono-plex outline-none" />
             <button data-testid="copy-feed-url-btn" onClick={() => copy(feedCfg.push_url)} className="flex items-center gap-1.5 text-xs bg-secondary hover:bg-accent px-3 py-1.5 rounded-[4px] transition-colors duration-200"><Copy size={14} /> Copy</button>
           </div>
+
+          <label className="text-xs font-mono-plex uppercase tracking-wider text-muted-foreground">Push URL — full snapshot (also hides missing vehicles)</label>
+          <div className="flex items-center gap-2 mt-1 mb-3">
+            <input data-testid="feed-full-url" readOnly value={feedCfg.full_push_url} className="flex-1 rounded-[4px] border border-input bg-card px-2 py-1.5 text-xs font-mono-plex outline-none" />
+            <button data-testid="copy-feed-full-url-btn" onClick={() => copy(feedCfg.full_push_url)} className="flex items-center gap-1.5 text-xs bg-secondary hover:bg-accent px-3 py-1.5 rounded-[4px] transition-colors duration-200"><Copy size={14} /> Copy</button>
+          </div>
+          <p className="text-xs text-muted-foreground mb-3">Use the <span className="font-semibold">full snapshot</span> URL when the provider sends the complete current inventory — any feed vehicle missing from that file is automatically marked unavailable. Use <span className="font-semibold">incremental</span> for partial updates.</p>
 
           <div className="text-xs text-muted-foreground font-mono-plex bg-card border border-border rounded-[4px] p-2 mb-3 overflow-x-auto">
             curl -X POST "{feedCfg.push_url}" -F "file=@inventory_export.csv"
@@ -109,11 +132,17 @@ export default function Inventory() {
             <div>
               <div className="text-xs font-mono-plex uppercase tracking-wider text-muted-foreground mb-1">Recent feed syncs</div>
               {feedCfg.recent_imports.map((r) => (
-                <div key={r.id} data-testid="feed-import-row" className="text-xs text-muted-foreground flex gap-3 py-0.5">
+                <div key={r.id} data-testid="feed-import-row" className="text-xs text-muted-foreground flex flex-wrap gap-3 py-0.5 items-center">
                   <span className="font-mono-plex">{new Date(r.created_at).toLocaleString()}</span>
-                  <span className="text-green-400">+{r.imported} new</span>
-                  <span className="text-blue-400">{r.updated} updated</span>
-                  {r.errors?.length > 0 && <span className="text-amber-400">{r.errors.length} skipped</span>}
+                  {r.status === "failed"
+                    ? <span className="text-red-400 font-semibold">Failed — {r.errors?.[0]?.error}</span>
+                    : <>
+                        <span className="text-green-400">+{r.imported} new</span>
+                        <span className="text-blue-400">{r.updated} updated</span>
+                        {r.deactivated > 0 && <span className="text-zinc-400">{r.deactivated} hidden</span>}
+                        {r.errors?.length > 0 && <span className="text-amber-400">{r.errors.length} skipped</span>}
+                        {r.mode === "full" && <span className="text-primary font-mono-plex">full</span>}
+                      </>}
                 </div>
               ))}
             </div>
