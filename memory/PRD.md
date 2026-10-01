@@ -121,3 +121,9 @@ Client vision: AutoNova = operator connecting MANY dealer groups; inventory is I
 - **Scraper/API**: framework stubbed (returns "framework ready" message) — Phase 2 will add the leprixdugros scraper adapter.
 - Tested: iteration_9.json — backend 100% (11/11), frontend 100% core flows, no issues.
 
+## Homepage refresh for new model (2026-10-01)
+- Landing.jsx reframed from single-dealership acquisition tool to the lead-gen + matching + referral model.
+- Hero: "Qualify the buyer. Match the vehicle. Refer the deal." + matched/referred card (dealer group + commission). Stats updated (∞ dealer groups connectable).
+- Features now: AI chat, deterministic scoring, connected inventory layer, cross-dealer matching, referral/commission tracking, always-fresh data.
+- New "Inventory layer" section (#network): Connect → Normalize → Refresh → Match & refer, with a "Private by design — never republished publicly" assurance. Nav + "How it works" + "For dealerships" copy updated. Verified desktop + mobile, no content overflow.
+
