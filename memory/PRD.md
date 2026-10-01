@@ -109,3 +109,15 @@ Backend 27/27 pytest pass; Frontend 7/7 flows pass (incl. live Gemini chat). No 
 - Field-mapping screen: SKIPPED per user (defaults assumed) — canonical column names used as-is.
 - inventory_imports docs now carry `status` (completed/failed), `mode`, `deactivated`. Recent syncs row shows new/updated/hidden/skipped/failed + `full` tag.
 
+## Source-agnostic Inventory Layer + Referrals (Phase 1) (2026-10-01)
+Client vision: AutoNova = operator connecting MANY dealer groups; inventory is INTERNAL-ONLY (never shown publicly); AI matches qualified buyers to vehicles across groups → referrals w/ per-group commission (e.g. Le Prix du Gros $200 via Mon Coéquipier). Source-agnostic so a scraper can be swapped for a feed/API later with no rebuild.
+- **New collections**: `dealer_groups` (name, website, referral_amount, referral_program, locations, status, is_default), `inventory_sources` (dealer_group_id, type csv_upload|http_feed|scraper|api, config, schedule, enabled, feed_token, last_run_at, last_status, last_stats), `referrals` (lead→dealer_group→vehicle, amount, status pipeline identified→sent→accepted→converted→paid→lost, external_reference=Mon Coéquipier, status_history).
+- `inventory_vehicles` extended: `dealer_group_id`, `source_id`, `last_seen_at`. Startup migration `_migrate_dealer_groups()` creates a default "House Inventory" group per org and backfills existing vehicles.
+- **connectors.py**: normalize_row (canonical schema + optional field_mapping), parse_csv/json/xml, fetch_http, ingest_rows (upsert by dealer_group+stock, full-snapshot cleanup), run_source_sync (http_feed pulls+ingests full; csv_upload push-based; scraper/api return non-error stub).
+- **Endpoints**: /api/dealer-groups CRUD; /api/inventory-sources CRUD + POST /{id}/run; /api/referrals GET + PATCH /{id}; POST /api/cron/sync-sources (Bearer WEBHOOK_CRON_SECRET, backgrounds work via asyncio). Feed endpoint now resolves per-source feed_token (→its group) then legacy org token (→default group). csv_upload sources expose their own push_url/full_push_url.
+- **AI matching**: `_run_match` searches ALL groups, stamps dealer_group_id on matches, and `_upsert_referral` auto-creates a referral when a qualified/partially_qualified lead has a top match (amount from group). Public seller chat appends a one-line teaser naming the matched vehicle + dealer group (once per lead, `match_teased`).
+- **Frontend**: Partners.jsx (dealer groups + expandable sources, add/edit/delete, per-source push URLs + Run now), Referrals.jsx (stat cards + status dropdown + Mon Coéquipier ref). Nav: Partners, Referrals. Routes /app/partners, /app/referrals.
+- **Scheduling**: `.emergent/crons.yml` → sync-inventory every 6h (`0 */6 * * *`) hits /api/cron/sync-sources. New env `WEBHOOK_CRON_SECRET` in backend/.env.
+- **Scraper/API**: framework stubbed (returns "framework ready" message) — Phase 2 will add the leprixdugros scraper adapter.
+- Tested: iteration_9.json — backend 100% (11/11), frontend 100% core flows, no issues.
+
