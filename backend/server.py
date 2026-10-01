@@ -1,6 +1,8 @@
 import logging
+import asyncio
+import hmac
 from datetime import datetime, timezone
-from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Header
+from fastapi import FastAPI, APIRouter, HTTPException, Depends, UploadFile, File, Header, Request
 from fastapi.responses import PlainTextResponse
 from starlette.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -11,6 +13,7 @@ from db import db, new_id, now_iso, clean, audit, emit_event, notify
 from auth import auth_router, get_current_user, require_roles
 from ai_engine import run_orchestrator, FALLBACK_MESSAGE, MODEL_PROVIDER, MODEL_NAME, PROMPT_VERSION
 from engine import run_qualification, compute_score, match_inventory, generate_slots, estimate_financing, SCORE_VERSION
+from connectors import run_source_sync
 from seed import seed_demo
 
 logging.basicConfig(level=logging.INFO)
@@ -104,16 +107,52 @@ async def _conv_messages(conv_id: str):
     return [clean(m) for m in msgs]
 
 
+async def _default_dealer_group_id(org_id: str) -> str:
+    dg = await db.dealer_groups.find_one({"organization_id": org_id, "is_default": True}) \
+        or await db.dealer_groups.find_one({"organization_id": org_id})
+    if dg:
+        return dg["id"]
+    dg_id = new_id()
+    await db.dealer_groups.insert_one({"id": dg_id, "organization_id": org_id, "name": "House Inventory",
+        "slug": "house", "website": None, "locations": [], "referral_amount": 0,
+        "referral_program": None, "status": "active", "is_default": True,
+        "created_at": now_iso(), "updated_at": now_iso()})
+    return dg_id
+
+
+async def _upsert_referral(lead: dict, vehicle: dict):
+    """Create or refresh a referral when a qualified lead is matched to a dealer-group vehicle."""
+    dg_id = vehicle.get("dealer_group_id")
+    dg = await db.dealer_groups.find_one({"id": dg_id}) if dg_id else None
+    seller = await db.sellers.find_one({"id": lead["seller_id"]}) or {}
+    label = " ".join(str(x) for x in [vehicle.get("year"), vehicle.get("make"), vehicle.get("model")] if x)
+    seller_name = (f"{seller.get('first_name') or ''} {seller.get('last_name') or ''}").strip() or "Seller"
+    base = {"organization_id": lead["organization_id"], "lead_id": lead["id"], "dealer_group_id": dg_id,
+            "inventory_vehicle_id": vehicle["id"], "seller_name": seller_name, "vehicle_label": label,
+            "amount": (dg or {}).get("referral_amount", 0), "updated_at": now_iso()}
+    existing = await db.referrals.find_one({"lead_id": lead["id"]})
+    if existing:
+        if existing.get("status") == "identified":
+            await db.referrals.update_one({"id": existing["id"]}, {"$set": base})
+    else:
+        await db.referrals.insert_one({"id": new_id(), "status": "identified", "external_reference": None,
+            "notes": None, "status_history": [{"status": "identified", "at": now_iso()}],
+            "created_at": now_iso(), **base})
+
+
 async def _run_match(lead: dict):
     pref = await db.inventory_preferences.find_one({"lead_id": lead["id"]}) or {}
-    inv = await db.inventory_vehicles.find({"organization_id": lead["organization_id"], "status": "available"}).to_list(1000)
+    inv = await db.inventory_vehicles.find({"organization_id": lead["organization_id"], "status": "available"}).to_list(2000)
     matches = match_inventory(clean(pref), [clean(v) for v in inv])
     await db.inventory_matches.delete_many({"lead_id": lead["id"]})
     for m in matches:
+        v = m["inventory_vehicle"]
         await db.inventory_matches.insert_one({"id": new_id(), "organization_id": lead["organization_id"],
-            "lead_id": lead["id"], "inventory_vehicle_id": m["inventory_vehicle"]["id"],
+            "lead_id": lead["id"], "inventory_vehicle_id": v["id"], "dealer_group_id": v.get("dealer_group_id"),
             "match_score": m["match_score"], "ranking": m["ranking"], "match_reasons": m["match_reasons"],
             "conflicts": m["conflicts"], "generated_at": now_iso()})
+    if matches and lead.get("qualification_status") in ("qualified", "partially_qualified"):
+        await _upsert_referral(lead, matches[0]["inventory_vehicle"])
     return matches
 
 
@@ -235,14 +274,28 @@ async def post_public_message(slug: str, conv_id: str, body: MessageBody):
     await db.leads.update_one({"id": lead["id"]}, {"$set": lead_updates})
     lead = await db.leads.find_one({"id": lead["id"]})
 
+    score, qual = await recalc_and_store_score(lead)
+    matches = []
+    if next_action in ("run_inventory_match", "offer_appointment"):
+        matches = await _run_match(lead)
+
+    # Tease the single best match to the customer (inventory stays internal — never a full listing)
+    content = data["responseMessage"]
+    if matches and not lead.get("match_teased"):
+        top = matches[0]["inventory_vehicle"]
+        dg = await db.dealer_groups.find_one({"id": top.get("dealer_group_id")}) if top.get("dealer_group_id") else None
+        label = " ".join(str(x) for x in [top.get("year"), top.get("make"), top.get("model")] if x)
+        price = f" around ${top['price']:,.0f}" if top.get("price") else ""
+        where = f" at {dg['name']}" if dg and dg.get("name") else ""
+        if label:
+            content += (f"\n\nGood news — based on what you're looking for, I think we have a strong match: "
+                        f"a {label}{price}{where}. If you'd like, I can connect you with the dealership.")
+            await db.leads.update_one({"id": lead["id"]}, {"$set": {"match_teased": True}})
+
     await db.messages.insert_one({"id": new_id(), "organization_id": org["id"], "conversation_id": conv_id,
-        "sender_type": "ai", "content": data["responseMessage"], "delivery_status": "delivered",
+        "sender_type": "ai", "content": content, "delivery_status": "delivered",
         "structured_payload": data, "model_provider": MODEL_PROVIDER, "model_name": MODEL_NAME,
         "prompt_version": PROMPT_VERSION, "created_at": now_iso()})
-
-    score, qual = await recalc_and_store_score(lead)
-    if next_action in ("run_inventory_match", "offer_appointment"):
-        await _run_match(lead)
 
     status_map = {"offer_appointment": "appointment_offered", "request_human": "human_takeover",
                   "run_qualification": "ai_qualifying"}
@@ -564,20 +617,25 @@ async def inventory_template():
     return buf.getvalue()
 
 
-async def _run_csv_import(org_id: str, content: str, source: str = "csv", mode: str = "incremental"):
-    """Shared CSV import used by both authenticated upload and the token feed endpoint."""
+async def _run_csv_import(org_id: str, content: str, source: str = "csv", mode: str = "incremental",
+                          dealer_group_id: str = None, source_id: str = None):
+    """Shared CSV import used by authenticated upload and the token feed endpoint."""
+    if dealer_group_id is None:
+        dealer_group_id = await _default_dealer_group_id(org_id)
     reader = csv.DictReader(io.StringIO(content))
     missing_cols = [c for c in ["stock_number", "make", "model", "year", "price"] if c not in (reader.fieldnames or [])]
     if missing_cols:
         detail = f"Missing required columns: {', '.join(missing_cols)}"
         await db.inventory_imports.insert_one({"id": new_id(), "organization_id": org_id, "source": source,
-            "status": "failed", "mode": mode, "imported": 0, "updated": 0, "deactivated": 0,
-            "errors": [{"row": 1, "error": detail}], "created_at": now_iso()})
+            "source_id": source_id, "dealer_group_id": dealer_group_id, "status": "failed", "mode": mode,
+            "imported": 0, "updated": 0, "deactivated": 0, "errors": [{"row": 1, "error": detail}],
+            "created_at": now_iso()})
         if source == "feed":
             await notify(org_id, "dealership", org_id, "in_app", "feed_sync_failed", {"error": detail})
         raise HTTPException(status_code=400, detail=detail)
     loc = await db.dealership_locations.find_one({"organization_id": org_id})
     imported, updated, errors, seen = 0, 0, [], set()
+    run_at = now_iso()
     for idx, row in enumerate(reader, start=2):
         try:
             stock = (row.get("stock_number") or "").strip()
@@ -594,26 +652,29 @@ async def _run_csv_import(org_id: str, content: str, source: str = "csv", mode: 
                    "exterior_colour": row.get("exterior_colour"),
                    "seating_capacity": int(row["seating_capacity"]) if row.get("seating_capacity") else None,
                    "location": row.get("location"), "status": (row.get("status") or "available").strip().lower(),
-                   "vehicle_url": row.get("vehicle_url"), "image_url": row.get("image_url"), "updated_at": now_iso()}
-            existing = await db.inventory_vehicles.find_one({"organization_id": org_id, "stock_number": stock})
+                   "vehicle_url": row.get("vehicle_url"), "image_url": row.get("image_url"),
+                   "dealer_group_id": dealer_group_id, "source_id": source_id, "last_seen_at": run_at,
+                   "updated_at": run_at}
+            existing = await db.inventory_vehicles.find_one(
+                {"organization_id": org_id, "dealer_group_id": dealer_group_id, "stock_number": stock})
             if existing:
                 await db.inventory_vehicles.update_one({"id": existing["id"]}, {"$set": doc}); updated += 1
             else:
                 await db.inventory_vehicles.insert_one({"id": new_id(), "organization_id": org_id,
                     "dealership_location_id": loc["id"] if loc else None, "source": source,
-                    "date_added": now_iso(), "created_at": now_iso(), **doc}); imported += 1
+                    "date_added": run_at, "created_at": run_at, **doc}); imported += 1
         except Exception as e:
             errors.append({"row": idx, "error": str(e)})
     deactivated = 0
-    if mode == "full" and source == "feed" and seen:
-        res = await db.inventory_vehicles.update_many(
-            {"organization_id": org_id, "source": "feed", "stock_number": {"$nin": list(seen)},
-             "status": {"$ne": "unavailable"}},
-            {"$set": {"status": "unavailable", "updated_at": now_iso()}})
+    if mode == "full" and seen:
+        scope = {"organization_id": org_id, "stock_number": {"$nin": list(seen)}, "status": {"$ne": "unavailable"}}
+        scope["source_id"] = source_id if source_id else None
+        res = await db.inventory_vehicles.update_many(scope, {"$set": {"status": "unavailable", "updated_at": run_at}})
         deactivated = res.modified_count
     await db.inventory_imports.insert_one({"id": new_id(), "organization_id": org_id, "source": source,
-        "status": "completed", "mode": mode, "imported": imported, "updated": updated,
-        "deactivated": deactivated, "errors": errors, "created_at": now_iso()})
+        "source_id": source_id, "dealer_group_id": dealer_group_id, "status": "completed", "mode": mode,
+        "imported": imported, "updated": updated, "deactivated": deactivated, "errors": errors,
+        "created_at": now_iso()})
     await emit_event(org_id, "inventory.imported", "inventory", "batch",
                      {"imported": imported, "updated": updated, "deactivated": deactivated, "source": source})
     if source == "feed" and errors:
@@ -676,12 +737,29 @@ async def inventory_feed(file: UploadFile = File(...), token: Optional[str] = No
     supplied = token or x_feed_token
     if not supplied:
         raise HTTPException(status_code=401, detail="Missing feed token")
-    org = await db.organizations.find_one({"inventory_feed_token": supplied})
-    if not org:
-        raise HTTPException(status_code=403, detail="Invalid feed token")
+    src = await db.inventory_sources.find_one({"feed_token": supplied})
+    if src:
+        org_id, dg_id, source_id = src["organization_id"], src.get("dealer_group_id"), src["id"]
+    else:
+        org = await db.organizations.find_one({"inventory_feed_token": supplied})
+        if not org:
+            raise HTTPException(status_code=403, detail="Invalid feed token")
+        org_id, dg_id, source_id = org["id"], await _default_dealer_group_id(org["id"]), None
     content = (await file.read()).decode("utf-8", errors="ignore")
-    return await _run_csv_import(org["id"], content, source="feed",
-                                 mode="full" if mode == "full" else "incremental")
+    try:
+        stats = await _run_csv_import(org_id, content, source="feed",
+                                      mode="full" if mode == "full" else "incremental",
+                                      dealer_group_id=dg_id, source_id=source_id)
+    except HTTPException:
+        if source_id:
+            await db.inventory_sources.update_one({"id": source_id},
+                {"$set": {"last_run_at": now_iso(), "last_status": "failed", "updated_at": now_iso()}})
+        raise
+    if source_id:
+        await db.inventory_sources.update_one({"id": source_id}, {"$set": {"last_run_at": now_iso(),
+            "last_status": "success", "last_stats": {k: stats[k] for k in ("imported", "updated", "deactivated")},
+            "updated_at": now_iso()}})
+    return stats
 
 
 class InventoryBody(BaseModel):
@@ -1003,6 +1081,198 @@ async def onboarding_skip(user: dict = Depends(require_roles("dealership_admin")
     return {"success": True}
 
 
+# ---------------- dealer groups (partners) ----------------
+def _feed_urls(source_id_token: str):
+    base = os.environ.get("PUBLIC_BASE_URL", "").rstrip("/")
+    push = f"{base}/api/inventory/feed?token={source_id_token}" if base else f"/api/inventory/feed?token={source_id_token}"
+    return {"push_url": push, "full_push_url": f"{push}&mode=full"}
+
+
+class DealerGroupBody(BaseModel):
+    name: str
+    website: Optional[str] = None
+    referral_amount: float = 0
+    referral_program: Optional[str] = None
+    locations: list = []
+    status: str = "active"
+
+
+@api.get("/dealer-groups")
+async def list_dealer_groups(user: dict = Depends(get_current_user)):
+    groups = await db.dealer_groups.find({"organization_id": _org(user)}).sort("created_at", 1).to_list(500)
+    out = []
+    for g in groups:
+        clean(g)
+        g["vehicle_count"] = await db.inventory_vehicles.count_documents(
+            {"organization_id": _org(user), "dealer_group_id": g["id"], "status": "available"})
+        g["source_count"] = await db.inventory_sources.count_documents(
+            {"organization_id": _org(user), "dealer_group_id": g["id"]})
+        out.append(g)
+    return out
+
+
+@api.post("/dealer-groups")
+async def create_dealer_group(body: DealerGroupBody, user: dict = Depends(require_roles("dealership_admin"))):
+    doc = {"id": new_id(), "organization_id": _org(user), "slug": body.name.lower().replace(" ", "-")[:40],
+           "is_default": False, "created_at": now_iso(), "updated_at": now_iso(), **body.model_dump()}
+    await db.dealer_groups.insert_one(dict(doc))
+    return clean(doc)
+
+
+@api.patch("/dealer-groups/{dg_id}")
+async def update_dealer_group(dg_id: str, body: dict, user: dict = Depends(require_roles("dealership_admin"))):
+    body.pop("id", None); body.pop("is_default", None)
+    body["updated_at"] = now_iso()
+    await db.dealer_groups.update_one({"id": dg_id, "organization_id": _org(user)}, {"$set": body})
+    return clean(await db.dealer_groups.find_one({"id": dg_id}))
+
+
+@api.delete("/dealer-groups/{dg_id}")
+async def delete_dealer_group(dg_id: str, user: dict = Depends(require_roles("dealership_admin"))):
+    dg = await db.dealer_groups.find_one({"id": dg_id, "organization_id": _org(user)})
+    if dg and dg.get("is_default"):
+        raise HTTPException(status_code=400, detail="Cannot delete the default dealer group")
+    await db.dealer_groups.delete_one({"id": dg_id, "organization_id": _org(user)})
+    await db.inventory_sources.delete_many({"dealer_group_id": dg_id, "organization_id": _org(user)})
+    return {"success": True}
+
+
+# ---------------- inventory sources (connectors) ----------------
+class SourceBody(BaseModel):
+    dealer_group_id: str
+    name: str
+    type: str  # csv_upload | http_feed | scraper | api
+    config: dict = {}
+    schedule: str = "every_6_hours"
+    enabled: bool = True
+
+
+def _source_out(s: dict):
+    clean(s)
+    if s.get("feed_token"):
+        s.update(_feed_urls(s["feed_token"]))
+        s.pop("feed_token", None)
+    return s
+
+
+@api.get("/inventory-sources")
+async def list_sources(user: dict = Depends(get_current_user), dealer_group_id: Optional[str] = None):
+    q = {"organization_id": _org(user)}
+    if dealer_group_id:
+        q["dealer_group_id"] = dealer_group_id
+    rows = await db.inventory_sources.find(q).sort("created_at", 1).to_list(500)
+    return [_source_out(r) for r in rows]
+
+
+@api.post("/inventory-sources")
+async def create_source(body: SourceBody, user: dict = Depends(require_roles("dealership_admin", "dealership_manager"))):
+    if body.type not in ("csv_upload", "http_feed", "scraper", "api"):
+        raise HTTPException(status_code=400, detail="Invalid source type")
+    doc = {"id": new_id(), "organization_id": _org(user), "last_run_at": None, "last_status": "never",
+           "last_stats": {}, "created_at": now_iso(), "updated_at": now_iso(), **body.model_dump()}
+    if body.type == "csv_upload":
+        doc["feed_token"] = secrets.token_urlsafe(24)
+    await db.inventory_sources.insert_one(dict(doc))
+    return _source_out(dict(doc))
+
+
+@api.patch("/inventory-sources/{sid}")
+async def update_source(sid: str, body: dict, user: dict = Depends(require_roles("dealership_admin", "dealership_manager"))):
+    body.pop("id", None); body.pop("feed_token", None)
+    body["updated_at"] = now_iso()
+    await db.inventory_sources.update_one({"id": sid, "organization_id": _org(user)}, {"$set": body})
+    return _source_out(await db.inventory_sources.find_one({"id": sid}))
+
+
+@api.delete("/inventory-sources/{sid}")
+async def delete_source(sid: str, user: dict = Depends(require_roles("dealership_admin", "dealership_manager"))):
+    await db.inventory_sources.delete_one({"id": sid, "organization_id": _org(user)})
+    return {"success": True}
+
+
+@api.post("/inventory-sources/{sid}/run")
+async def run_source(sid: str, user: dict = Depends(require_roles("dealership_admin", "dealership_manager"))):
+    src = await db.inventory_sources.find_one({"id": sid, "organization_id": _org(user)})
+    if not src:
+        raise HTTPException(status_code=404, detail="Source not found")
+    try:
+        stats = await run_source_sync(clean(dict(src)))
+        status = "success" if not stats.get("skipped_reason") else "idle"
+        await db.inventory_sources.update_one({"id": sid}, {"$set": {"last_run_at": now_iso(),
+            "last_status": status, "last_stats": {k: stats.get(k, 0) for k in ("imported", "updated", "deactivated")},
+            "updated_at": now_iso()}})
+        return stats
+    except Exception as e:
+        await db.inventory_sources.update_one({"id": sid}, {"$set": {"last_run_at": now_iso(),
+            "last_status": "failed", "last_error": str(e), "updated_at": now_iso()}})
+        raise HTTPException(status_code=400, detail=f"Sync failed: {e}")
+
+
+# ---------------- referrals ----------------
+REFERRAL_STATUSES = ["identified", "sent", "accepted", "converted", "paid", "lost"]
+
+
+@api.get("/referrals")
+async def list_referrals(user: dict = Depends(get_current_user), status: Optional[str] = None):
+    q = {"organization_id": _org(user)}
+    if status:
+        q["status"] = status
+    rows = await db.referrals.find(q).sort("created_at", -1).to_list(1000)
+    groups = {g["id"]: g for g in await db.dealer_groups.find({"organization_id": _org(user)}).to_list(500)}
+    out = []
+    for r in rows:
+        clean(r)
+        g = groups.get(r.get("dealer_group_id"))
+        r["dealer_group_name"] = g["name"] if g else None
+        out.append(r)
+    totals = {"pipeline": sum(r.get("amount", 0) for r in out if r["status"] not in ("paid", "lost")),
+              "earned": sum(r.get("amount", 0) for r in out if r["status"] == "paid"),
+              "count": len(out)}
+    return {"referrals": out, "totals": totals, "statuses": REFERRAL_STATUSES}
+
+
+@api.patch("/referrals/{rid}")
+async def update_referral(rid: str, body: dict, user: dict = Depends(get_current_user)):
+    ref = await db.referrals.find_one({"id": rid, "organization_id": _org(user)})
+    if not ref:
+        raise HTTPException(status_code=404, detail="Referral not found")
+    updates = {"updated_at": now_iso()}
+    for k in ("external_reference", "notes", "amount"):
+        if k in body:
+            updates[k] = body[k]
+    if body.get("status") and body["status"] in REFERRAL_STATUSES:
+        updates["status"] = body["status"]
+        hist = ref.get("status_history", []) + [{"status": body["status"], "at": now_iso()}]
+        updates["status_history"] = hist
+    await db.referrals.update_one({"id": rid}, {"$set": updates})
+    return clean(await db.referrals.find_one({"id": rid}))
+
+
+# ---------------- cron: scheduled source sync ----------------
+async def _sync_all_sources():
+    sources = await db.inventory_sources.find({"enabled": True, "type": {"$in": ["http_feed", "scraper", "api"]}}).to_list(1000)
+    for src in sources:
+        try:
+            stats = await run_source_sync(clean(dict(src)))
+            status = "success" if not stats.get("skipped_reason") else "idle"
+            await db.inventory_sources.update_one({"id": src["id"]}, {"$set": {"last_run_at": now_iso(),
+                "last_status": status, "last_stats": {k: stats.get(k, 0) for k in ("imported", "updated", "deactivated")},
+                "updated_at": now_iso()}})
+        except Exception as e:
+            await db.inventory_sources.update_one({"id": src["id"]}, {"$set": {"last_run_at": now_iso(),
+                "last_status": "failed", "last_error": str(e), "updated_at": now_iso()}})
+
+
+@api.post("/cron/sync-sources")
+async def cron_sync_sources(request: Request, authorization: Optional[str] = Header(default=None)):
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    secret = os.environ.get("WEBHOOK_CRON_SECRET", "")
+    token = (authorization or "").removeprefix("Bearer ").strip()
+    if not secret or not token or not hmac.compare_digest(token, secret):
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    asyncio.create_task(_sync_all_sources())
+    return {"accepted": True}
+
 
 app.include_router(auth_router)
 app.include_router(api)
@@ -1027,8 +1297,22 @@ async def startup():
     await db.seller_vehicles.create_index("lead_id")
     await db.appointments.create_index("lead_id")
     await db.appointments.create_index([("organization_id", 1), ("status", 1)])
+    await db.inventory_vehicles.create_index([("organization_id", 1), ("dealer_group_id", 1)])
+    await db.inventory_sources.create_index("feed_token")
+    await db.referrals.create_index([("organization_id", 1), ("status", 1)])
     await seed_demo()
+    await _migrate_dealer_groups()
     logger.info("Startup complete")
+
+
+async def _migrate_dealer_groups():
+    """Ensure every org has a default dealer group and existing inventory is assigned to it."""
+    orgs = await db.organizations.find({}).to_list(1000)
+    for org in orgs:
+        dg_id = await _default_dealer_group_id(org["id"])
+        await db.inventory_vehicles.update_many(
+            {"organization_id": org["id"], "dealer_group_id": {"$exists": False}},
+            {"$set": {"dealer_group_id": dg_id}})
 
 
 @app.on_event("shutdown")

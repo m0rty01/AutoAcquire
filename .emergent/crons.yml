@@ -1,0 +1,8 @@
+crons:
+  - name: sync-inventory
+    description: "Refreshes every enabled dealer inventory source (http feeds/scrapers) every 6 hours"
+    cron: "0 */6 * * *"
+    endpoint: "{{BASE_URL}}/api/cron/sync-sources"
+    method: POST
+    # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
+    enabled: true
