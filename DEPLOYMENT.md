@@ -89,3 +89,13 @@ On the **frontend** service in Render:
   request takes ~30–50s to wake. Use the **Starter** plan (set in `render.yaml`) to avoid this.
 - **Google Sign-In (Emergent OAuth):** works with the custom domain because redirect URLs are built
   dynamically from the browser origin. No extra config needed.
+
+## Backups & recovery (production)
+- MongoDB Atlas: enable Cloud Backup (continuous / point-in-time) on the production cluster; keep at least 7 days of snapshots.
+- Restore drill: restore the latest snapshot to a staging cluster quarterly and point a staging deployment at it to verify.
+- Application records are never hard-deleted for commissions, consent or communications (soft states only), so audit history survives.
+
+## Monitoring
+- `GET /api/health` — unauthenticated liveness check (database ping) for uptime monitors.
+- `/app/health` (admins) — provider configuration, 24h email/SMS failures, failed/scheduled automation runs, inventory sync errors.
+- Scheduled jobs: `.emergent/crons.yml` → `sync-inventory` (6h) and `run-automations` (15 min).

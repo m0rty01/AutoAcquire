@@ -1,3 +1,4 @@
+import { tr } from "@/lib/adminI18n";
 import { useState } from "react";
 import client from "@/lib/api";
 import { toast } from "sonner";
@@ -22,7 +23,7 @@ function PermissionEditor({ p, reload, readOnly }) {
         </label>
       ))}
       <p className="text-xs text-muted-foreground">Dealership referral consent does not authorize promotional messages. Record only what the customer explicitly agreed to.</p>
-      {!readOnly && <button data-testid="perm-save-btn" onClick={save} className="text-xs bg-primary text-primary-foreground px-3 py-1.5 rounded-[4px] hover:opacity-90">Save permissions</button>}
+      {!readOnly && <button data-testid="perm-save-btn" onClick={save} className="text-xs bg-primary text-primary-foreground px-3 py-1.5 rounded-[4px] hover:opacity-90">{tr("Save permissions")}</button>}
     </div>
   );
 }
@@ -43,7 +44,7 @@ function SendPanel({ p, reload }) {
     <div className="flex flex-wrap gap-2">
       <select data-testid="send-channel" value={ch} onChange={(e) => setCh(e.target.value)} className={`${inputCls} w-auto`}><option value="email">Email</option><option value="sms">SMS</option></select>
       <select data-testid="send-template" value={tpl} onChange={(e) => setTpl(e.target.value)} className={`${inputCls} w-auto`}>{SENDABLE.map((t) => <option key={t} value={t}>{titleize(t)}</option>)}</select>
-      <button data-testid="send-message-btn" onClick={send} className="text-xs bg-primary text-primary-foreground px-4 rounded-[4px] hover:opacity-90">Send</button>
+      <button data-testid="send-message-btn" onClick={send} className="text-xs bg-primary text-primary-foreground px-4 rounded-[4px] hover:opacity-90">{tr("Send")}</button>
       <p className="w-full text-xs text-muted-foreground">Recipient comes from the customer record; content uses the approved bilingual template in the customer's language. Sends are blocked without the matching permission.</p>
     </div>
   );
@@ -90,7 +91,7 @@ export function ConsentTab({ p, reload, readOnly }) {
         {active && !readOnly && (
           <div className="flex gap-2 mt-4">
             <input data-testid="withdraw-reason" value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Reason (optional)" className={inputCls} />
-            <button data-testid="withdraw-consent-btn" onClick={withdraw} className="text-xs whitespace-nowrap border border-red-500/40 text-red-400 px-3 rounded-[4px] hover:bg-red-500/10">Record withdrawal</button>
+            <button data-testid="withdraw-consent-btn" onClick={withdraw} className="text-xs whitespace-nowrap border border-red-500/40 text-red-400 px-3 rounded-[4px] hover:bg-red-500/10">{tr("Record withdrawal")}</button>
           </div>
         )}
       </Card>

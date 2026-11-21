@@ -41,8 +41,9 @@ export function AgreementDialog({ group, onClose, onSaved }) {
               <div><label className="text-xs text-muted-foreground">Calculation period</label>
                 <select data-testid="agreement-period" value={f.volume_period} onChange={(e) => setF({ ...f, volume_period: e.target.value })} className={`${inputCls} mt-1`}><option value="monthly">Monthly</option><option value="quarterly">Quarterly</option></select></div>
               <div><label className="text-xs text-muted-foreground">Method</label>
-                <select data-testid="agreement-method" value={f.volume_method} onChange={(e) => setF({ ...f, volume_method: e.target.value })} className={`${inputCls} mt-1`}><option value="incremental">Incremental — each sale paid at the tier reached</option><option value="retroactive">Retroactive — whole period lifted to tier reached</option></select></div>
+                <select data-testid="agreement-method" value={f.volume_method} onChange={(e) => setF({ ...f, volume_method: e.target.value })} className={`${inputCls} mt-1`}><option value="incremental">Incremental</option><option value="retroactive">Retroactive</option></select></div>
             </div>
+            <p data-testid="agreement-method-help" className="text-xs text-muted-foreground">{f.volume_method === "incremental" ? "Incremental: each sale is paid at the tier reached when it is verified." : "Retroactive: when a higher tier is reached, earlier sales in the same period are lifted to it via adjustment lines."}</p>
             <div className="space-y-2">
               <div className="grid grid-cols-[1fr_80px_80px_100px_80px_24px] gap-2 text-[11px] font-mono-plex uppercase text-muted-foreground"><span>Tier</span><span>From</span><span>To</span><span>$ / sale</span><span>% sale</span><span /></div>
               {tiers.map((t, i) => (

@@ -162,7 +162,7 @@ function GroupCard({ group, onChanged }) {
             </div>
             <div className="flex items-center gap-3 text-xs text-muted-foreground mt-1 flex-wrap">
               {group.website && <span className="flex items-center gap-1"><Globe size={12} /> {group.website.replace(/^https?:\/\//, "")}</span>}
-              <span className="flex items-center gap-1"><CurrencyDollar size={12} /> ${group.referral_amount || 0}{group.referral_program ? ` · ${group.referral_program}` : ""}</span>
+              <span data-testid="group-commission-summary" className="flex items-center gap-1"><CurrencyDollar size={12} /> {group.commission_model === "volume" ? `Volume · ${(group.volume_tiers || []).length} tiers · ${group.volume_method || "incremental"}` : group.commission_model === "percent" ? `${group.commission_rate || 0}% of sale` : `$${group.commission_rate || group.referral_amount || 0} / sale`}{group.referral_program ? ` · ${group.referral_program}` : ""}</span>
               <span>{group.vehicle_count} vehicles</span>
               <span>{group.source_count} source(s)</span>
             </div>

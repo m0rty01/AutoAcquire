@@ -7,7 +7,7 @@ from fastapi import APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel, EmailStr
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
-from db import db, new_id, now_iso, clean, audit
+from db import db, new_id, now_iso, clean, audit, rate_limited
 
 JWT_ALGORITHM = "HS256"
 auth_router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -130,8 +130,11 @@ async def register(body: RegisterBody):
 
 
 @auth_router.post("/login")
-async def login(body: LoginBody):
+async def login(body: LoginBody, request: Request):
     email = body.email.lower()
+    ip = (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "?")).split(",")[0].strip()
+    if await rate_limited(f"login:{email}", 20, 900) or await rate_limited(f"login-ip:{ip}", 300, 900):
+        raise HTTPException(status_code=429, detail="Too many sign-in attempts. Please wait 15 minutes and try again.")
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(body.password, user.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Invalid email or password")
@@ -158,6 +161,8 @@ async def me(user: dict = Depends(get_current_user)):
 @auth_router.post("/forgot-password")
 async def forgot_password(body: ForgotBody):
     email = body.email.lower()
+    if await rate_limited(f"forgot:{email}", 3, 3600):
+        return {"success": True, "message": "If the email exists, a reset link was sent."}
     user = await db.users.find_one({"email": email})
     if user and user.get("status") != "inactive":
         await db.password_reset_tokens.update_many({"user_id": user["id"], "used": False}, {"$set": {"used": True}})

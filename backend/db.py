@@ -76,3 +76,15 @@ async def notify(organization_id, recipient_type, recipient_id, channel, templat
     await db.notifications.insert_one(doc)
     print(f"[EMAIL SIMULATED] to={recipient_id} template={template} payload={payload}")
     return doc
+
+
+async def rate_limited(key: str, limit: int, window_seconds: int) -> bool:
+    """Fixed-window limiter stored in Mongo so it holds across multiple app instances."""
+    from datetime import timedelta
+    now = datetime.now(timezone.utc)
+    bucket = int(now.timestamp()) // window_seconds
+    doc = await db.rate_limits.find_one_and_update(
+        {"key": f"{key}:{bucket}"},
+        {"$inc": {"count": 1}, "$setOnInsert": {"expires_at": now + timedelta(seconds=window_seconds * 2)}},
+        upsert=True, return_document=True)
+    return doc["count"] > limit

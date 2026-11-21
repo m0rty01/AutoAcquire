@@ -89,7 +89,7 @@ export default function Sales() {
                   <td className="p-3 font-medium">{s.vehicle_label || "—"}</td>
                   <td className="p-3">{s.dealer_group_name || "—"}</td>
                   <td className="p-3 font-mono-plex">{s.sale_amount != null ? `$${s.sale_amount.toLocaleString()}` : "—"}</td>
-                  <td className="p-3 font-mono-plex">{s.commission ? `$${(s.commission.amount || 0).toLocaleString()} ${s.commission.status === "cancelled" ? "(void)" : ""}` : "—"}</td>
+                  <td className="p-3 font-mono-plex">{s.commission ? `$${(s.commission.amount || 0).toLocaleString()} ${s.commission.status === "cancelled" ? "(void)" : ""}` : "—"}{s.commission_adjustments > 0 && <span className="block text-[11px] text-primary">+ ${s.commission_adjustments.toLocaleString()} tier adjustment</span>}</td>
                   <td className="p-3"><span className={`text-xs font-mono-plex px-2 py-1 rounded border ${SALE_STYLE[s.status]}`}>{s.status}</span></td>
                   <td className="p-3">
                     {s.status === "reported" && (

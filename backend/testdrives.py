@@ -5,7 +5,7 @@ from pydantic import BaseModel
 from db import db, new_id, now_iso, clean, audit
 from auth import get_current_user
 from crm import scoped_lead, log_activity
-from automation import fire
+from automation import fire, cancel_reminders
 
 td_router = APIRouter(prefix="/api", tags=["test-drives"])
 
@@ -138,6 +138,8 @@ async def _transition(td: dict, action: str, status: str, user: dict, extra: dic
     if td["status"] not in _ALLOWED[action]:
         raise HTTPException(status_code=400, detail=f"Cannot {action.replace('-', ' ')} a test drive that is {td['status'].replace('_', ' ')}")
     upd = {"status": status, "updated_at": now_iso(), **(extra or {})}
+    if status in ("cancelled", "pending_confirmation", "dealership_declined", "no_show", "completed"):
+        await cancel_reminders(td["id"])
     await db.test_drives.update_one({"id": td["id"]}, {"$set": upd,
         "$push": {"status_history": {"status": status, "at": now_iso(), "by": user.get("email"), "detail": detail}}})
     await log_activity(td["organization_id"], td["lead_id"], f"test_drive_{status}", user.get("email"),
@@ -192,7 +194,7 @@ async def td_action(td_id: str, action: str, body: TDAction = TDAction(), user: 
         await db.leads.update_one({"id": td["lead_id"]}, {"$set": {"pipeline_stage": "test_drive_scheduled", "last_activity_at": now_iso()}})
         seller = await db.sellers.find_one({"id": td["seller_id"]}) or {}
         await fire(td["organization_id"], "test_drive_confirmed", td["lead_id"], f"{td_id}:{when}",
-                   {"start_time": when, "vehicle": td.get("vehicle_label"),
+                   {"source": "test_drive", "source_id": td_id, "start_time": when, "vehicle": td.get("vehicle_label"),
                     "customer_name": (f"{seller.get('first_name') or ''} {seller.get('last_name') or ''}").strip() or "Customer"})
         return out
     if action == "decline":

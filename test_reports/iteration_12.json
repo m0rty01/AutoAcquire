@@ -1,0 +1,48 @@
+{
+  "summary": "Iteration 12: tested the iteration_11 fixes plus M2 (communications, webhooks, automations), M3 (test drives) and M4 (commission tiers, ledger, exports) on both backend and frontend. New pytest suite: 19/19 pass. Older regression suites: 52/53 pass; the 1 failure is a stale test. UI flows all work: Communication Center, Automations, Test Drives, profile send panel and test-drive request, Sales ledger with CSV/PDF downloads, Partners agreement dialog, and rep RBAC in nav and redirects. Found 2 HIGH business-logic bugs, both reproduced with scripts: (1) reminders still go out for cancelled or rescheduled test drives and appointments, (2) rejecting the sale that triggered a retroactive uplift leaves the uplift adjustment payable. Found 1 MEDIUM RBAC leak: reps can list all automation runs for the org.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "automation.py _execute (kind=reminder) / POST /api/automations/process", "issue": "A scheduled reminder run never checks the current status of its test drive or appointment. Reproduced: confirm a test drive (a reminder is scheduled), cancel it, move run_at into the past, then call process. The run ends 'success' and sends test_drive_reminder by email and SMS for a cancelled test drive. Reschedule has the same problem: the old reminder stays scheduled and a new one is added when the drive is confirmed again (entity_id includes the time). Appointment cancel and decline also do not cancel reminders.", "priority": "HIGH"},
+      {"endpoint": "POST /api/sales/{id}/reject", "issue": "With retroactive tiers, sale #2 creates an 'adjustment' transaction (sale_id = sale #1, triggered_by_sale_id = sale #2). Rejecting sale #2 cancels only transactions where sale_id = sale #2, so the +150 adjustment stays 'payable'. Reproduced: the ledger shows 100 + 150 payable with only 1 valid sale, so the dealer is overpaid. reject_sale also accepts already-verified sales without any status guard.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "GET /api/automations/runs, GET /api/automations", "issue": "Not role-scoped. A rep sees every automation run in the org (54 rows), including lead ids and staff emails in the action strings. Opening /app/automations by URL as a rep renders the page read-only."},
+      {"endpoint": "commissions.compute_commission", "issue": "volume_tiers counting ignores effective_date, so sales verified earlier in the period under an older agreement count toward the new tiers."},
+      {"endpoint": "POST /api/sales/{id}/verify", "issue": "Status is set to verified before commission is computed, and there is no atomic guard. Two concurrent verify calls could both compute retroactive adjustments and create duplicate adjustments; only the 'sale' transaction is idempotent."},
+      {"endpoint": "automation.scan_conditions", "issue": "Runs 2-3 sequential DB queries per lead for up to 5000 leads, inside a synchronous manager request (POST /automations/process). It will slow down as the data grows."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "TDActions toast", "issue": "Toast text is built from the action key, so it reads 'Test drive confirm', 'Test drive complete' or 'Test drive no show' instead of past tense.", "selector": "[data-testid^='td-confirm-']", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Test Drives filters, Commission ledger filters, Agreement effective date, New test drive time, profile follow-up", "issues": ["Uses the browser's native date and datetime-local pickers (mm/dd/yyyy) instead of the shadcn Calendar or Popover"]},
+      {"screen": "Agreement dialog", "issues": ["The Method select text is cut off ('Incremental — each sale paid at the tier re…')"]},
+      {"screen": "Partners list", "issues": ["Volume-tier groups still show '$ $0' (legacy referral_amount) instead of a tier summary"]},
+      {"screen": "Sales table", "issues": ["The Commission column hides retroactive adjustments (sale #1 shows $100 while the ledger shows an extra $150), which can mislead users"]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_m2_m3_m4_comms_testdrives_commissions.py", "/app/test_reports/pytest/iter12.xml", "/app/test_reports/pytest/iter12_full.xml"],
+  "action_items": [
+    "Before sending a reminder run, re-check the test drive or appointment status (and time) and skip it (status 'skipped') if the entity is cancelled, declined, no_show or completed, or the time changed. Also cancel scheduled reminder runs when an entity is cancelled, rescheduled or declined.",
+    "In reject_sale, also cancel adjustment transactions where triggered_by_sale_id = sale_id, and add a status guard (or define the rules for rejecting a verified sale).",
+    "Scope GET /api/automations/runs (and optionally rules) to MANAGE roles, or filter runs to the rep's own leads. Redirect reps away from /app/automations, as is already done for /app/users.",
+    "Optional: replace native date inputs with the shadcn Calendar, fix the TD toast wording, and widen the agreement Method select.",
+    "Update the stale test tests/test_partners_inventory_referrals.py::test_auto_create_via_run_inventory_match_and_patch (referrals are now created on consent, not on match). Note that this test also recomputes inventory_matches on real seeded leads."
+  ],
+  "critical_code_review_comments": [
+    "send_communication's idempotency check ignores not_configured and failed rows, so retrying a run's sends after credentials are added will resend (intended). With providers configured, the automation customer_send key is run_id-based, which is fine.",
+    "comms._apply_status lets 'bounced' or 'failed' override 'delivered' (intended), and the out-of-order guard is correct.",
+    "server.py is still 1721 lines (over 700) and should be split further.",
+    "list_comms rep filter: when lead_id is given and is not the rep's lead, it correctly returns empty."
+  ],
+  "updated_files": ["/app/backend/tests/test_m2_m3_m4_comms_testdrives_commissions.py"],
+  "success_rate": {"backend": "95% (19/19 new tests pass; 2 HIGH logic bugs found by targeted repro scripts)", "frontend": "95%"},
+  "seed_data_creation": "Only TEST_ data was created (leads, sellers, dealer groups 'TEST_I12 *' and 'TEST_UI Agreement', users test_i12_*, sales and transactions); all of it was deleted by id. The automation rules inactive_customer (delay changed 5 then back to 0) and appointment_confirmation (channels re-saved as email+sms, the default) were edited during the test and left at their default values. The stale legacy test test_partners_inventory_referrals recomputed inventory_matches on existing seeded leads when it ran.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run the new suite with: pytest tests/test_m2_m3_m4_comms_testdrives_commissions.py -p no:xdist -o addopts=''. It creates leads via the public conversation API and cleans up by id. Repro scripts are /tmp/reminder_check.py (cancelled test drive reminder still sent) and /tmp/reject_check.py (adjustment left payable after reject); re-run them after the fixes. Save buttons on automation rule cards appear only after a field is edited. The profile assign dropdown fills in asynchronously (wait about 2s). Communication permissions are edited in the profile Communications tab (perm-*, perm-save-btn); the Consent tab is read-only.",
+  "rca of the issue": "Reminder bug: _schedule_reminder inserts an independent automation_run (kind=reminder). _execute(kind=reminder) only loads the lead and sends, and the test drive and appointment cancel, decline and reschedule handlers never touch automation_runs. Adjustment bug: verify_sale writes adjustments under the peer's sale_id, while reject_sale cancels by sale_id only."
+}

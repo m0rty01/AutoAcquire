@@ -7,7 +7,7 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends, Header
 from pydantic import BaseModel
 from db import db, new_id, now_iso, clean, audit, notify
-from auth import get_current_user, require_roles
+from auth import require_roles
 from crm import log_activity
 from comms import send_communication, lead_context
 
@@ -32,6 +32,15 @@ DEFAULT_RULES = [
      "channels": ["email"], "template": "follow_up", "language": "customer",
      "params": {"inactive_days": 7, "send_message": False}},
 ]
+
+
+class SkipRun(Exception):
+    pass
+
+
+async def cancel_reminders(source_id: str):
+    await db.automation_runs.update_many({"kind": "reminder", "status": "scheduled", "payload.source_id": source_id},
+                                         {"$set": {"status": "cancelled", "error": "Source cancelled or rescheduled", "executed_at": now_iso()}})
 
 
 def _now():
@@ -94,7 +103,7 @@ async def _customer_send(lead, rule, template, vars, actions, key_prefix):
         actions.append(f"{ch} {template} ({c['status']}{': ' + c['error'] if c.get('error') else ''})")
 
 
-async def _schedule_reminder(lead, rule, start_time, vars, entity_id, actions):
+async def _schedule_reminder(lead, rule, start_time, vars, entity_id, actions, src):
     st = _parse(start_time)
     hrs = rule["params"].get("reminder_hours_before", 24)
     if not st:
@@ -108,7 +117,9 @@ async def _schedule_reminder(lead, rule, start_time, vars, entity_id, actions):
         return
     await db.automation_runs.insert_one({"id": new_id(), "organization_id": lead["organization_id"], "rule_key": rule["key"],
         "kind": "reminder", "lead_id": lead["id"], "entity_id": entity_id, "idempotency_key": key, "status": "scheduled",
-        "run_at": run_at.isoformat(), "payload": {"template": rule["params"].get("reminder_template"), "vars": vars},
+        "run_at": run_at.isoformat(), "payload": {"template": rule["params"].get("reminder_template"), "vars": vars,
+                                                  "source": src.get("source"), "source_id": src.get("source_id"),
+                                                  "start_time": start_time},
         "actions": [], "attempts": 0, "created_at": now_iso()})
     actions.append(f"reminder scheduled {run_at.isoformat()[:16]}")
 
@@ -120,6 +131,12 @@ async def _execute(rule: dict, run: dict):
     clean(lead)
     actions, ctx = [], run.get("payload") or {}
     if run.get("kind") == "reminder":
+        src = ctx.get("source")
+        coll = db.test_drives if src == "test_drive" else db.appointments
+        doc = await coll.find_one({"id": ctx.get("source_id")}) if src else None
+        when = (doc or {}).get("scheduled_at" if src == "test_drive" else "start_time")
+        if src and (not doc or doc.get("status") != "confirmed" or when != ctx.get("start_time")):
+            raise SkipRun(f"{src.replace('_', ' ')} is no longer confirmed for this time")
         await _customer_send(lead, rule, ctx["template"], ctx.get("vars", {}), actions, run["id"])
         return actions
     trig = rule["trigger"]
@@ -167,7 +184,7 @@ async def _execute(rule: dict, run: dict):
                 "vehicle": ctx.get("vehicle") or ""}
         vars = {k: v for k, v in vars.items() if v}
         await _customer_send(lead, rule, rule["template"], vars, actions, run["id"])
-        await _schedule_reminder(lead, rule, ctx.get("start_time"), vars, run["entity_id"], actions)
+        await _schedule_reminder(lead, rule, ctx.get("start_time"), vars, run["entity_id"], actions, ctx)
         if trig == "test_drive_confirmed" and lead.get("assigned_user_id"):
             rep = await db.users.find_one({"id": lead["assigned_user_id"]})
             if rep:
@@ -188,6 +205,8 @@ async def _run(run: dict):
     try:
         actions = await _execute(clean(rule), run)
         await db.automation_runs.update_one({"id": run["id"]}, {"$set": {"status": "success", "actions": actions, "error": None, "executed_at": now_iso()}})
+    except SkipRun as e:
+        await db.automation_runs.update_one({"id": run["id"]}, {"$set": {"status": "skipped", "error": str(e), "executed_at": now_iso()}})
     except Exception as e:
         logger.exception("automation run failed")
         await db.automation_runs.update_one({"id": run["id"]}, {"$set": {"status": "failed", "error": str(e)[:500], "executed_at": now_iso()}})
@@ -219,12 +238,14 @@ async def scan_conditions(org_id: str):
     now = _now()
     leads = await db.leads.find({"organization_id": org_id, "is_test": {"$ne": True},
                                  "pipeline_stage": {"$nin": ["sale_verified", "lost"]}}).to_list(5000)
+    sellers = {s["id"]: s for s in await db.sellers.find({"id": {"$in": [l.get("seller_id") for l in leads]}},
+                                                         {"id": 1, "first_name": 1, "last_name": 1}).to_list(None)}
     for lead in leads:
         last = _parse(lead.get("last_activity_at") or lead.get("created_at"))
         if not last:
             continue
         idle_h = int((now - last).total_seconds() // 3600)
-        seller = await db.sellers.find_one({"id": lead["seller_id"]}) or {}
+        seller = sellers.get(lead.get("seller_id")) or {}
         name = (f"{seller.get('first_name') or ''} {seller.get('last_name') or ''}").strip() or "Customer"
         b = rules.get("uncontacted_lead")
         if b and lead.get("consent_status") == "granted" and idle_h >= b["params"].get("idle_hours", 24):
@@ -254,8 +275,11 @@ async def process_due(org_id: Optional[str] = None):
 
 
 # ---------------- admin API ----------------
+VIEW = MANAGE + ("platform_support",)
+
+
 @automation_router.get("/automations")
-async def list_rules(user: dict = Depends(get_current_user)):
+async def list_rules(user: dict = Depends(require_roles(*VIEW))):
     await ensure_rules(user["organization_id"])
     rules = [clean(r) for r in await db.automation_rules.find({"organization_id": user["organization_id"]}).sort("name", 1).to_list(20)]
     for r in rules:
@@ -301,7 +325,7 @@ async def update_rule(key: str, body: RulePatch, user: dict = Depends(require_ro
 
 
 @automation_router.get("/automations/runs")
-async def list_runs(user: dict = Depends(get_current_user), status: Optional[str] = None, rule_key: Optional[str] = None):
+async def list_runs(user: dict = Depends(require_roles(*VIEW)), status: Optional[str] = None, rule_key: Optional[str] = None):
     q = {"organization_id": user["organization_id"]}
     if status:
         q["status"] = status

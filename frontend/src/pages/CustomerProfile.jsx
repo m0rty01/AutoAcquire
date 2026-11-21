@@ -3,6 +3,7 @@ import { useParams, useNavigate, useSearchParams } from "react-router-dom";
 import client from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { Loading } from "@/components/Bits";
+import { tr } from "@/lib/adminI18n";
 import { ScoreBadge, StatusBadge, titleize } from "@/components/ui/badges";
 import { ArrowLeft, PencilSimple, ChatsCircle } from "@phosphor-icons/react";
 import { OverviewTab, PreferencesTab, ConversationTab } from "@/components/profile/TabsA";
@@ -46,7 +47,7 @@ export default function CustomerProfile() {
       </button>
       <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
         <div>
-          <div className="text-[11px] font-mono-plex uppercase tracking-[0.2em] text-muted-foreground">Customer profile</div>
+          <div className="text-[11px] font-mono-plex uppercase tracking-[0.2em] text-muted-foreground">{tr("Customer profile")}</div>
           <h1 data-testid="profile-name" className="font-head font-black text-3xl sm:text-4xl tracking-tight mt-1">{name}</h1>
           <div className="flex items-center gap-2 mt-2 flex-wrap">
             <ScoreBadge score={p.lead.score} band={p.lead.score_band} />
@@ -64,7 +65,7 @@ export default function CustomerProfile() {
         {TABS.map(([key, label]) => (
           <button key={key} data-testid={`profile-tab-${key}`} onClick={() => setParams({ tab: key }, { replace: true })}
             className={`px-3.5 py-2.5 text-sm font-medium whitespace-nowrap border-b-2 transition-colors duration-200 ${tab === key ? "border-primary text-foreground" : "border-transparent text-muted-foreground hover:text-foreground"}`}>
-            {label}{COUNT[key] && p[COUNT[key]].length > 0 && <span className="ml-1.5 text-[10px] font-mono-plex bg-secondary rounded-full px-1.5">{p[COUNT[key]].length}</span>}
+            {tr(label)}{COUNT[key] && p[COUNT[key]].length > 0 && <span className="ml-1.5 text-[10px] font-mono-plex bg-secondary rounded-full px-1.5">{p[COUNT[key]].length}</span>}
           </button>
         ))}
       </div>

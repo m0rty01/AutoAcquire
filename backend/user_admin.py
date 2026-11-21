@@ -231,3 +231,15 @@ async def admin_password_reset(user_id: str, user: dict = Depends(get_current_us
     url, email_status = await _issue_reset(t, user, "invite" if t.get("status") == "invited" else "reset")
     await audit(t["organization_id"], "user", user["id"], "user", user_id, "password_reset_initiated")
     return {"success": True, "reset_url": url, "email_status": email_status, "expires_in_hours": 72 if t.get("status") == "invited" else 1}
+
+
+class PrefsBody(BaseModel):
+    language: str
+
+
+@users_router.patch("/me/preferences")
+async def my_preferences(body: PrefsBody, user: dict = Depends(get_current_user)):
+    if body.language not in ("en", "fr"):
+        raise HTTPException(status_code=400, detail="Language must be en or fr")
+    await db.users.update_one({"id": user["id"]}, {"$set": {"preferred_language": body.language, "updated_at": now_iso()}})
+    return {"success": True, "language": body.language}

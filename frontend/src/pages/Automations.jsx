@@ -1,4 +1,6 @@
+import { tr } from "@/lib/adminI18n";
 import { useEffect, useState, useCallback } from "react";
+import { Navigate } from "react-router-dom";
 import client from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader, Loading } from "@/components/Bits";
@@ -54,7 +56,7 @@ function RuleCard({ rule, templates, users, canEdit, onSaved }) {
           </div>
         ))}
       </div>
-      {canEdit && dirty && <button data-testid={`rule-save-${rule.key}`} onClick={() => save()} className="mt-3 text-xs bg-primary text-primary-foreground px-3 py-1.5 rounded-[4px] hover:opacity-90">Save changes</button>}
+      {canEdit && dirty && <button data-testid={`rule-save-${rule.key}`} onClick={() => save()} className="mt-3 text-xs bg-primary text-primary-foreground px-3 py-1.5 rounded-[4px] hover:opacity-90">{tr("Save changes")}</button>}
     </div>
   );
 }
@@ -76,6 +78,7 @@ export default function Automations() {
     client.get("/communications/config").then((r) => setCfg(r.data));
     client.get("/users", { params: { role: "dealership_representative", status: "active" } }).then((r) => setUsers(r.data)).catch(() => {});
   }, []);
+  if (user && !canEdit && user.role !== "platform_support") return <Navigate to="/app/dashboard" replace />;
   const runNow = async () => { try { await client.post("/automations/process"); toast.success("Automation checks executed"); load(); } catch (e) { toast.error(e.response?.data?.detail || "Failed"); } };
   const retry = async (id) => { try { const { data } = await client.post(`/automations/runs/${id}/retry`); toast.success(`Retry: ${data.status}`); load(); } catch (e) { toast.error(e.response?.data?.detail || "Retry failed"); } };
   if (!rules) return <Loading />;

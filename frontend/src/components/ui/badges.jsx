@@ -1,3 +1,4 @@
+import { tr } from "@/lib/adminI18n";
 export const bandClass = (band) =>
   ({ hot: "band-hot", warm: "band-warm", nurture: "band-nurture", low: "band-low" }[band] || "band-low");
 
@@ -11,7 +12,7 @@ export function ScoreBadge({ score, band }) {
 }
 
 export const titleize = (s) =>
-  (s || "").split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  tr((s || "").split("_").map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "));
 
 const STATUS_COLORS = {
   new: "text-blue-400 bg-blue-500/10 border-blue-500/20",

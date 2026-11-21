@@ -7,9 +7,11 @@ import { inputCls } from "@/components/profile/shared";
 const err = (e) => toast.error(e.response?.data?.detail || "Action failed");
 const local = (iso) => (iso ? new Date(iso).toISOString().slice(0, 16) : "");
 
+const PAST = { confirm: "confirmed", decline: "declined", reschedule: "rescheduled", cancel: "cancelled", complete: "completed", "no-show": "marked as no-show" };
+
 export function TDActions({ td, onDone }) {
   const post = async (action, body = {}) => {
-    try { await client.post(`/test-drives/${td.id}/${action}`, body); toast.success(`Test drive ${action.replace("-", " ")}`); onDone(); } catch (e) { err(e); }
+    try { await client.post(`/test-drives/${td.id}/${action}`, body); toast.success(`Test drive ${PAST[action] || action}`); onDone(); } catch (e) { err(e); }
   };
   const ask = (q, def = "") => window.prompt(q, def);
   const btn = (key, label, fn, cls = "text-primary") => (

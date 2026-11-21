@@ -1,3 +1,4 @@
+import { tr } from "@/lib/adminI18n";
 import { titleize } from "@/components/ui/badges";
 import { Card, Fields, Empty, fmtDate, fmtDay, money } from "./shared";
 
@@ -20,9 +21,9 @@ export function OverviewTab({ p }) {
         <Fields rows={[
           ["Created", fmtDay(lead.created_at), "ov-created"], ["Lead source", titleize(lead.source), "ov-source"],
           ["Lead score", `${lead.score ?? 0} · ${lead.score_band || "—"}`, "ov-score"],
-          ["Assigned dealership", o.dealer_group?.name, "ov-dealer"], ["Sales representative", o.assigned_user?.name || o.assigned_user?.email || "Unassigned", "ov-rep"],
+          ["Assigned dealership", o.dealer_group?.name, "ov-dealer"], ["Sales representative", o.assigned_user?.name || o.assigned_user?.email || tr("Unassigned"), "ov-rep"],
           ["Pipeline stage", titleize(p.stage), "ov-stage"], ["Last interaction", fmtDate(o.last_interaction), "ov-last"],
-          ["Next follow-up", o.next_follow_up ? `${fmtDate(o.next_follow_up.due_at)}${o.next_follow_up.note ? ` · ${o.next_follow_up.note}` : ""}` : "None scheduled", "ov-next-followup"],
+          ["Next follow-up", o.next_follow_up ? `${fmtDate(o.next_follow_up.due_at)}${o.next_follow_up.note ? ` · ${o.next_follow_up.note}` : ""}` : tr("None scheduled"), "ov-next-followup"],
           ["Customer status", titleize(lead.status), "ov-status"],
         ]} />
       </Card>

@@ -24,6 +24,8 @@ import ResetPassword from "@/pages/ResetPassword";
 import Communications from "@/pages/Communications";
 import Automations from "@/pages/Automations";
 import TestDrives from "@/pages/TestDrives";
+import Integrations from "@/pages/Integrations";
+import SystemHealth from "@/pages/SystemHealth";
 import "@/App.css";
 
 function Protected({ children }) {
@@ -53,6 +55,8 @@ function RootRouter() {
         <Route path="communications" element={<Communications />} />
         <Route path="automations" element={<Automations />} />
         <Route path="test-drives" element={<TestDrives />} />
+        <Route path="integrations" element={<Integrations />} />
+        <Route path="health" element={<SystemHealth />} />
         <Route path="inventory" element={<Inventory />} />
         <Route path="partners" element={<Partners />} />
         <Route path="referrals" element={<Referrals />} />

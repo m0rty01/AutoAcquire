@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import client from "@/lib/api";
 import { PageHeader, Loading } from "@/components/Bits";
+import { titleize } from "@/components/ui/badges";
 import { toast } from "sonner";
 import { MagnifyingGlass, Clock, Warning, X, Note, PaperPlaneRight } from "@phosphor-icons/react";
 
@@ -63,7 +64,7 @@ export default function Pipeline() {
             <div key={stage} className="shrink-0 w-64" onDragOver={(e) => e.preventDefault()}
               onDrop={() => { if (drag && _stageChanged(drag, stage)) move(drag.id, stage); setDrag(null); }}>
               <div className="flex items-center justify-between mb-2 px-1">
-                <span className="text-xs font-mono-plex uppercase tracking-wider text-muted-foreground">{LABELS[stage]}</span>
+                <span className="text-xs font-mono-plex uppercase tracking-wider text-muted-foreground">{titleize(stage)}</span>
                 <span className="text-xs text-muted-foreground bg-secondary rounded-full px-1.5">{cards.length}</span>
               </div>
               <div className="space-y-2 min-h-[60px]" data-testid={`col-${stage}`}>

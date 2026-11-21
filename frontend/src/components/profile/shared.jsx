@@ -1,14 +1,15 @@
 import { titleize } from "@/components/ui/badges";
+import { tr, fmtDateL, fmtDayL, moneyL } from "@/lib/adminI18n";
 
-export const fmtDate = (v) => (v ? new Date(v).toLocaleString() : "—");
-export const fmtDay = (v) => (v ? new Date(v).toLocaleDateString() : "—");
-export const money = (v) => (v == null ? "—" : `$${Number(v).toLocaleString()}`);
+export const fmtDate = fmtDateL;
+export const fmtDay = fmtDayL;
+export const money = moneyL;
 
 export const Card = ({ title, children, action, testid }) => (
   <div className="border border-border rounded-[4px] bg-card p-5" data-testid={testid}>
     {(title || action) && (
       <div className="flex items-center justify-between mb-3 gap-2">
-        {title && <h3 className="font-head font-bold tracking-tight">{title}</h3>}
+        {title && <h3 className="font-head font-bold tracking-tight">{tr(title)}</h3>}
         {action}
       </div>
     )}
@@ -20,7 +21,7 @@ export const Fields = ({ rows, cols = "sm:grid-cols-3" }) => (
   <dl className={`grid grid-cols-2 ${cols} gap-y-4 gap-x-6 text-sm`}>
     {rows.map(([k, v, id]) => (
       <div key={k} data-testid={id}>
-        <dt className="text-[11px] font-mono-plex uppercase tracking-wider text-muted-foreground">{k}</dt>
+        <dt className="text-[11px] font-mono-plex uppercase tracking-wider text-muted-foreground">{tr(k)}</dt>
         <dd className="mt-0.5 break-words">{v === 0 ? 0 : v || "—"}</dd>
       </div>
     ))}
@@ -44,7 +45,7 @@ export const Pill = ({ s }) => (
 );
 
 export const Empty = ({ label, testid }) => (
-  <div data-testid={testid} className="text-sm text-muted-foreground py-10 text-center border border-dashed border-border rounded-[4px]">{label}</div>
+  <div data-testid={testid} className="text-sm text-muted-foreground py-10 text-center border border-dashed border-border rounded-[4px]">{tr(label)}</div>
 );
 
 export function Table({ head, rows, testid }) {
@@ -53,7 +54,7 @@ export function Table({ head, rows, testid }) {
       <table className="w-full text-sm">
         <thead>
           <tr className="text-left text-[11px] font-mono-plex uppercase tracking-wider text-muted-foreground border-b border-border">
-            {head.map((h) => <th key={h} className="pb-2 pr-4 font-medium whitespace-nowrap">{h}</th>)}
+            {head.map((h) => <th key={h} className="pb-2 pr-4 font-medium whitespace-nowrap">{tr(h)}</th>)}
           </tr>
         </thead>
         <tbody>

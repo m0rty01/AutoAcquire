@@ -1,3 +1,4 @@
+import { tr } from "@/lib/adminI18n";
 import { useEffect, useState, useCallback } from "react";
 import { Navigate } from "react-router-dom";
 import client from "@/lib/api";
@@ -65,7 +66,7 @@ export default function UserManagement() {
       <div className="flex flex-wrap gap-2 mb-4">
         <div className="relative">
           <MagnifyingGlass size={15} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-muted-foreground" />
-          <input data-testid="users-search" value={f.search} onChange={(e) => setF({ ...f, search: e.target.value })} placeholder="Search name or email…" className={`${inputCls} pl-8 w-60`} />
+          <input data-testid="users-search" value={f.search} onChange={(e) => setF({ ...f, search: e.target.value })} placeholder={tr("Search name or email…")} className={`${inputCls} pl-8 w-60`} />
         </div>
         {sel("role", meta.roles.map((r) => [r.value, r.label]), "All roles")}
         {sel("status", [["active", "Active"], ["invited", "Invited"], ["inactive", "Deactivated"]], "All statuses")}
@@ -80,11 +81,11 @@ export default function UserManagement() {
             <Pill s={u.status} />, <span className="text-xs font-mono-plex">{u.last_login_at ? fmtDate(u.last_login_at) : "Never"}</span>,
             can(u) ? (
               <div className="flex gap-2 justify-end text-xs whitespace-nowrap">
-                <button data-testid={`user-edit-${u.email}`} onClick={() => setDialog({ mode: "edit", user: u })} className="text-primary hover:underline">Edit</button>
-                {u.status !== "inactive" && <button data-testid={`user-reset-${u.email}`} onClick={() => act(u, "password-reset")} className="hover:underline">Reset password</button>}
+                <button data-testid={`user-edit-${u.email}`} onClick={() => setDialog({ mode: "edit", user: u })} className="text-primary hover:underline">{tr("Edit")}</button>
+                {u.status !== "inactive" && <button data-testid={`user-reset-${u.email}`} onClick={() => act(u, "password-reset")} className="hover:underline">{tr("Reset password")}</button>}
                 {u.status === "inactive"
-                  ? <button data-testid={`user-reactivate-${u.email}`} onClick={() => act(u, "reactivate")} className="text-emerald-400 hover:underline">Reactivate</button>
-                  : <button data-testid={`user-deactivate-${u.email}`} onClick={() => act(u, "deactivate")} className="text-red-400 hover:underline">Deactivate</button>}
+                  ? <button data-testid={`user-reactivate-${u.email}`} onClick={() => act(u, "reactivate")} className="text-emerald-400 hover:underline">{tr("Reactivate")}</button>
+                  : <button data-testid={`user-deactivate-${u.email}`} onClick={() => act(u, "deactivate")} className="text-red-400 hover:underline">{tr("Deactivate")}</button>}
               </div>
             ) : <span className="text-xs text-muted-foreground">{u.id === me?.id ? "You" : ""}</span>,
           ])} />

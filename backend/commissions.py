@@ -43,8 +43,9 @@ async def compute_commission(dg: dict, sale: dict):
     period = dg.get("volume_period", "monthly")
     method = dg.get("volume_method", "incremental")
     pkey = _period_key(sale.get("sale_date") or now_iso(), period)
+    eff = dg.get("effective_date") or ""
     peers = [s for s in await db.sales.find({"dealer_group_id": dg["id"], "status": "verified", "id": {"$ne": sale["id"]}}).to_list(10000)
-             if _period_key(s.get("sale_date") or "", period) == pkey]
+             if _period_key(s.get("sale_date") or "", period) == pkey and (s.get("verified_at") or "")[:10] >= eff]
     n = len(peers) + 1
     tier = _tier_for(tiers, n)
     if not tier:

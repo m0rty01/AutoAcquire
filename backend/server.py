@@ -9,7 +9,7 @@ from pydantic import BaseModel
 from typing import Optional
 import io, csv, os, secrets
 
-from db import db, new_id, now_iso, clean, audit, emit_event, notify
+from db import db, new_id, now_iso, clean, audit, emit_event, notify, rate_limited
 from auth import auth_router, get_current_user, require_roles
 from ai_engine import run_orchestrator, FALLBACK_MESSAGE, MODEL_PROVIDER, MODEL_NAME, PROMPT_VERSION
 from engine import run_qualification, compute_score, match_inventory, generate_slots, estimate_financing, SCORE_VERSION
@@ -18,9 +18,11 @@ from seed import seed_demo
 from crm import crm_router, PIPELINE_STAGES, log_activity, scoped_lead, stage_of as _stage_of
 from user_admin import users_router
 from comms import comms_router
-from automation import automation_router, fire
+from automation import automation_router, fire, cancel_reminders
 from testdrives import td_router
 from commissions import commission_router, compute_commission
+from integrations import integrations_router
+from health import health_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("autoacquire")
@@ -33,6 +35,21 @@ REQUIRED_FOR_APPOINTMENT = ["vehicle.make", "vehicle.model", "vehicle.year", "ve
 
 def _org(user):
     return user["organization_id"]
+
+
+async def _rep_scope(user: dict, q: dict) -> dict:
+    """Representatives only see records tied to leads assigned to them."""
+    if user["role"] == "dealership_representative":
+        ids = [l["id"] for l in await db.leads.find({"organization_id": _org(user), "assigned_user_id": user["id"]}, {"id": 1}).to_list(5000)]
+        q["lead_id"] = {"$in": ids}
+    return q
+
+
+async def _scoped_appt(appt_id: str, user: dict) -> dict:
+    appt = await db.appointments.find_one(await _rep_scope(user, {"id": appt_id, "organization_id": _org(user)}))
+    if not appt:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    return appt
 
 
 async def build_state(lead: dict) -> dict:
@@ -151,7 +168,8 @@ async def _upsert_referral(lead: dict, vehicle: dict, status: str = "identified"
 
 async def _run_match(lead: dict):
     pref = await db.inventory_preferences.find_one({"lead_id": lead["id"]}) or {}
-    inv = await db.inventory_vehicles.find({"organization_id": lead["organization_id"], "status": "available"}).to_list(2000)
+    inv = await db.inventory_vehicles.find({"organization_id": lead["organization_id"], "status": "available",
+                                            "is_sample": {"$ne": True}}).to_list(2000)  # sandbox sample data never reaches customers
     matches = match_inventory(clean(pref), [clean(v) for v in inv])
     await db.inventory_matches.delete_many({"lead_id": lead["id"]})
     for m in matches:
@@ -255,7 +273,12 @@ async def get_public_conversation(slug: str, conv_id: str):
 
 
 @api.post("/public/{slug}/conversations/{conv_id}/messages")
-async def post_public_message(slug: str, conv_id: str, body: MessageBody):
+async def post_public_message(slug: str, conv_id: str, body: MessageBody, request: Request):
+    ip = (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "?")).split(",")[0].strip()
+    if await rate_limited(f"chat:{conv_id}", 60, 600) or await rate_limited(f"chat-ip:{ip}", 200, 600):
+        raise HTTPException(status_code=429, detail="Too many messages. Please slow down.")
+    if len(body.content or "") > 2000:
+        raise HTTPException(status_code=400, detail="Message too long")
     org = await _get_dealer_by_slug(slug)
     conv = await db.conversations.find_one({"id": conv_id})
     if not conv:
@@ -1005,7 +1028,7 @@ async def delete_availability(av_id: str,
 # ---------------- appointments ----------------
 @api.get("/appointments")
 async def list_appointments(user: dict = Depends(get_current_user)):
-    rows = await db.appointments.find({"organization_id": _org(user)}).sort("start_time", 1).to_list(500)
+    rows = await db.appointments.find(await _rep_scope(user, {"organization_id": _org(user)})).sort("start_time", 1).to_list(500)
     out = []
     for a in rows:
         clean(a)
@@ -1017,9 +1040,7 @@ async def list_appointments(user: dict = Depends(get_current_user)):
 
 @api.post("/appointments/{appt_id}/confirm")
 async def confirm_appointment(appt_id: str, user: dict = Depends(get_current_user)):
-    appt = await db.appointments.find_one({"id": appt_id, "organization_id": _org(user)})
-    if not appt:
-        raise HTTPException(status_code=404, detail="Appointment not found")
+    appt = await _scoped_appt(appt_id, user)
     if appt["status"] not in ("requested", "proposed"):
         raise HTTPException(status_code=400, detail=f"Cannot confirm an appointment that is {appt['status']}")
     await db.appointments.update_one({"id": appt_id}, {"$set": {"status": "confirmed",
@@ -1029,7 +1050,7 @@ async def confirm_appointment(appt_id: str, user: dict = Depends(get_current_use
     await emit_event(_org(user), "appointment.confirmed", "appointment", appt_id)
     await log_activity(_org(user), appt["lead_id"], "appointment_confirmed", user.get("email", user["id"]), "Appointment confirmed")
     await fire(_org(user), "appointment_confirmed", appt["lead_id"], appt_id,
-               {"start_time": appt["start_time"], "appointment_type": (appt.get("appointment_type") or "").replace("_", " ")})
+               {"source": "appointment", "source_id": appt_id, "start_time": appt["start_time"], "appointment_type": (appt.get("appointment_type") or "").replace("_", " ")})
     return {"success": True}
 
 
@@ -1039,11 +1060,10 @@ class DeclineBody(BaseModel):
 
 @api.post("/appointments/{appt_id}/decline")
 async def decline_appointment(appt_id: str, body: DeclineBody = DeclineBody(), user: dict = Depends(get_current_user)):
-    appt = await db.appointments.find_one({"id": appt_id, "organization_id": _org(user)})
-    if not appt:
-        raise HTTPException(status_code=404, detail="Appointment not found")
+    appt = await _scoped_appt(appt_id, user)
     await db.appointments.update_one({"id": appt_id},
         {"$set": {"status": "declined", "decline_reason": body.reason, "updated_at": now_iso()}})
+    await cancel_reminders(appt_id)
     await db.leads.update_one({"id": appt["lead_id"]}, {"$set": {"status": "appointment_declined"}})
     await audit(_org(user), "user", user["id"], "appointment", appt_id, "declined")
     return {"success": True}
@@ -1051,14 +1071,17 @@ async def decline_appointment(appt_id: str, body: DeclineBody = DeclineBody(), u
 
 @api.post("/appointments/{appt_id}/cancel")
 async def cancel_appointment(appt_id: str, user: dict = Depends(get_current_user)):
+    await _scoped_appt(appt_id, user)
     await db.appointments.update_one({"id": appt_id, "organization_id": _org(user)},
                                      {"$set": {"status": "cancelled", "updated_at": now_iso()}})
+    await cancel_reminders(appt_id)
     await audit(_org(user), "user", user["id"], "appointment", appt_id, "cancelled")
     return {"success": True}
 
 
 @api.post("/appointments/{appt_id}/complete")
 async def complete_appointment(appt_id: str, user: dict = Depends(get_current_user)):
+    await _scoped_appt(appt_id, user)
     await db.appointments.update_one({"id": appt_id, "organization_id": _org(user)},
                                      {"$set": {"status": "completed", "updated_at": now_iso()}})
     return {"success": True}
@@ -1066,6 +1089,7 @@ async def complete_appointment(appt_id: str, user: dict = Depends(get_current_us
 
 @api.post("/appointments/{appt_id}/no-show")
 async def noshow_appointment(appt_id: str, user: dict = Depends(get_current_user)):
+    await _scoped_appt(appt_id, user)
     await db.appointments.update_one({"id": appt_id, "organization_id": _org(user)},
                                      {"$set": {"status": "no_show", "updated_at": now_iso()}})
     return {"success": True}
@@ -1164,7 +1188,7 @@ class SaleBody(BaseModel):
 
 @api.post("/sales")
 async def report_sale(body: SaleBody, user: dict = Depends(get_current_user)):
-    ref = await db.referrals.find_one({"id": body.referral_id, "organization_id": _org(user)})
+    ref = await db.referrals.find_one(await _rep_scope(user, {"id": body.referral_id, "organization_id": _org(user)}))
     if not ref:
         raise HTTPException(status_code=404, detail="Referral not found")
     if await db.sales.find_one({"referral_id": ref["id"], "status": {"$ne": "rejected"}}):
@@ -1186,7 +1210,7 @@ async def report_sale(body: SaleBody, user: dict = Depends(get_current_user)):
 
 @api.get("/sales")
 async def list_sales(user: dict = Depends(get_current_user), status: Optional[str] = None):
-    q = {"organization_id": _org(user)}
+    q = await _rep_scope(user, {"organization_id": _org(user)})
     if status:
         q["status"] = status
     rows = await db.sales.find(q).sort("created_at", -1).to_list(1000)
@@ -1202,6 +1226,8 @@ async def list_sales(user: dict = Depends(get_current_user), status: Optional[st
         else:
             comm = await db.commission_transactions.find_one({"sale_id": s["id"], "type": {"$ne": "adjustment"}})
             s["commission"] = clean(comm) if comm else None
+            adj = await db.commission_transactions.find({"sale_id": s["id"], "type": "adjustment", "status": {"$ne": "cancelled"}}).to_list(20)
+            s["commission_adjustments"] = round(sum(a["amount"] for a in adj), 2)
         out.append(s)
     return {"sales": out, "statuses": SALE_STATUSES}
 
@@ -1211,10 +1237,10 @@ async def verify_sale(sale_id: str, user: dict = Depends(require_roles("platform
     sale = await db.sales.find_one({"id": sale_id, "organization_id": _org(user)})
     if not sale:
         raise HTTPException(status_code=404, detail="Sale not found")
-    if sale["status"] == "verified":
+    res = await db.sales.update_one({"id": sale_id, "status": {"$ne": "verified"}}, {"$set": {"status": "verified",
+        "verified_by": user["id"], "verified_at": now_iso(), "updated_at": now_iso()}})
+    if not res.modified_count:  # atomic guard against double verification
         raise HTTPException(status_code=400, detail="Sale already verified")
-    await db.sales.update_one({"id": sale_id}, {"$set": {"status": "verified", "verified_by": user["id"],
-        "verified_at": now_iso(), "updated_at": now_iso()}})
     dg = await db.dealer_groups.find_one({"id": sale.get("dealer_group_id")}) if sale.get("dealer_group_id") else None
     amount, basis, adjustments = await compute_commission(clean(dg) if dg else None, clean(sale))
     if not await db.commission_transactions.find_one({"sale_id": sale_id, "status": {"$ne": "cancelled"}}):  # idempotent
@@ -1239,8 +1265,10 @@ async def reject_sale(sale_id: str, user: dict = Depends(require_roles("platform
     sale = await db.sales.find_one({"id": sale_id, "organization_id": _org(user)})
     if not sale:
         raise HTTPException(status_code=404, detail="Sale not found")
+    if sale["status"] == "rejected":
+        raise HTTPException(status_code=400, detail="Sale already rejected")
     await db.sales.update_one({"id": sale_id}, {"$set": {"status": "rejected", "updated_at": now_iso()}})
-    await db.commission_transactions.update_many({"sale_id": sale_id},
+    await db.commission_transactions.update_many({"$or": [{"sale_id": sale_id}, {"triggered_by_sale_id": sale_id}]},
         {"$set": {"status": "cancelled", "updated_at": now_iso()}})
     await audit(_org(user), "user", user["id"], "sale", sale_id, "rejected")
     return {"success": True}
@@ -1564,7 +1592,7 @@ REFERRAL_STATUSES = ["identified", "sent", "accepted", "converted", "paid", "los
 
 @api.get("/referrals")
 async def list_referrals(user: dict = Depends(get_current_user), status: Optional[str] = None):
-    q = {"organization_id": _org(user)}
+    q = await _rep_scope(user, {"organization_id": _org(user)})
     if status:
         q["status"] = status
     rows = await db.referrals.find(q).sort("created_at", -1).to_list(1000)
@@ -1583,7 +1611,7 @@ async def list_referrals(user: dict = Depends(get_current_user), status: Optiona
 
 @api.patch("/referrals/{rid}")
 async def update_referral(rid: str, body: dict, user: dict = Depends(get_current_user)):
-    ref = await db.referrals.find_one({"id": rid, "organization_id": _org(user)})
+    ref = await db.referrals.find_one(await _rep_scope(user, {"id": rid, "organization_id": _org(user)}))
     if not ref:
         raise HTTPException(status_code=404, detail="Referral not found")
     updates = {"updated_at": now_iso()}
@@ -1632,6 +1660,8 @@ app.include_router(comms_router)
 app.include_router(automation_router)
 app.include_router(td_router)
 app.include_router(commission_router)
+app.include_router(integrations_router)
+app.include_router(health_router)
 
 _cors_env = [o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()]
 app.add_middleware(
@@ -1661,6 +1691,8 @@ async def startup():
     await db.communications.create_index("provider_message_id")
     await db.communications.create_index("lead_id")
     await db.webhook_events.create_index([("provider", 1), ("event_id", 1)], unique=True)
+    await db.rate_limits.create_index("key", unique=True)
+    await db.rate_limits.create_index("expires_at", expireAfterSeconds=0)
     await seed_demo()
     await _migrate_dealer_groups()
     await _seed_consent_agreements()
