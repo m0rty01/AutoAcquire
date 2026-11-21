@@ -120,23 +120,26 @@ async def _default_dealer_group_id(org_id: str) -> str:
     return dg_id
 
 
-async def _upsert_referral(lead: dict, vehicle: dict):
-    """Create or refresh a referral when a qualified lead is matched to a dealer-group vehicle."""
+async def _upsert_referral(lead: dict, vehicle: dict, status: str = "identified"):
+    """Create or refresh a referral. Only called after explicit customer consent."""
     dg_id = vehicle.get("dealer_group_id")
     dg = await db.dealer_groups.find_one({"id": dg_id}) if dg_id else None
     seller = await db.sellers.find_one({"id": lead["seller_id"]}) or {}
     label = " ".join(str(x) for x in [vehicle.get("year"), vehicle.get("make"), vehicle.get("model")] if x)
-    seller_name = (f"{seller.get('first_name') or ''} {seller.get('last_name') or ''}").strip() or "Seller"
+    seller_name = (f"{seller.get('first_name') or ''} {seller.get('last_name') or ''}").strip() or "Customer"
     base = {"organization_id": lead["organization_id"], "lead_id": lead["id"], "dealer_group_id": dg_id,
             "inventory_vehicle_id": vehicle["id"], "seller_name": seller_name, "vehicle_label": label,
             "amount": (dg or {}).get("referral_amount", 0), "updated_at": now_iso()}
     existing = await db.referrals.find_one({"lead_id": lead["id"]})
     if existing:
-        if existing.get("status") == "identified":
-            await db.referrals.update_one({"id": existing["id"]}, {"$set": base})
+        updates = dict(base)
+        if existing.get("status") == "identified" and status != "identified":
+            updates["status"] = status
+            updates["status_history"] = existing.get("status_history", []) + [{"status": status, "at": now_iso()}]
+        await db.referrals.update_one({"id": existing["id"]}, {"$set": updates})
     else:
-        await db.referrals.insert_one({"id": new_id(), "status": "identified", "external_reference": None,
-            "notes": None, "status_history": [{"status": "identified", "at": now_iso()}],
+        await db.referrals.insert_one({"id": new_id(), "status": status, "external_reference": None,
+            "notes": None, "status_history": [{"status": status, "at": now_iso()}],
             "created_at": now_iso(), **base})
 
 
@@ -151,18 +154,19 @@ async def _run_match(lead: dict):
             "lead_id": lead["id"], "inventory_vehicle_id": v["id"], "dealer_group_id": v.get("dealer_group_id"),
             "match_score": m["match_score"], "ranking": m["ranking"], "match_reasons": m["match_reasons"],
             "conflicts": m["conflicts"], "generated_at": now_iso()})
-    if matches and lead.get("qualification_status") in ("qualified", "partially_qualified"):
-        await _upsert_referral(lead, matches[0]["inventory_vehicle"])
+    # Referral/dealership sharing is NOT created here — it is gated behind explicit customer consent.
     return matches
 
 
 # ---------------- public conversation ----------------
 class StartConvBody(BaseModel):
     consent: bool = True
+    language: str = "en"
 
 
 class MessageBody(BaseModel):
     content: str
+    language: Optional[str] = None
 
 
 async def _get_dealer_by_slug(slug: str):
@@ -199,12 +203,18 @@ async def start_conversation(slug: str, body: StartConvBody):
         "recommended_next_action": "ask_question", "is_test": False, "last_activity_at": now_iso(),
         "created_at": now_iso(), "updated_at": now_iso()})
     conv_id = new_id()
+    language = body.language if body.language in ("en", "fr") else "en"
     await db.conversations.insert_one({"id": conv_id, "organization_id": org["id"], "lead_id": lead_id,
         "channel": "web", "status": "active", "current_stage": "intent_discovery", "rolling_summary": "",
-        "ai_active": True, "started_at": now_iso(), "created_at": now_iso(), "updated_at": now_iso()})
-    greeting = (f"Hi, I'm {org['name']}'s virtual vehicle assistant (an AI). I can ask a few questions "
-                "about your vehicle and help arrange an appraisal or trade-in appointment. Are you looking "
-                "to sell your vehicle, trade it in, or explore your options?")
+        "language": language, "ai_active": True, "started_at": now_iso(), "created_at": now_iso(), "updated_at": now_iso()})
+    if language == "fr":
+        greeting = (f"Bonjour, je suis l'assistant virtuel de {org['name']} (une IA). Je peux vous aider à "
+                    "trouver le bon véhicule à acheter, ou à vendre ou échanger le vôtre. Cherchez-vous à "
+                    "acheter un véhicule, ou à vendre/échanger le vôtre ?")
+    else:
+        greeting = (f"Hi, I'm {org['name']}'s virtual vehicle assistant (an AI). I can help you find the right "
+                    "vehicle to buy, or sell/trade in your current one. Are you looking to buy a vehicle, or to "
+                    "sell or trade in yours?")
     await db.messages.insert_one({"id": new_id(), "organization_id": org["id"], "conversation_id": conv_id,
         "sender_type": "ai", "content": greeting, "delivery_status": "delivered",
         "model_provider": MODEL_PROVIDER, "model_name": MODEL_NAME, "prompt_version": PROMPT_VERSION,
@@ -229,6 +239,10 @@ async def post_public_message(slug: str, conv_id: str, body: MessageBody):
         raise HTTPException(status_code=404, detail="Conversation not found")
     lead = await db.leads.find_one({"id": conv["lead_id"]})
 
+    if body.language in ("en", "fr") and body.language != conv.get("language"):
+        await db.conversations.update_one({"id": conv_id}, {"$set": {"language": body.language}})
+        conv["language"] = body.language
+
     user_msg_id = new_id()
     await db.messages.insert_one({"id": user_msg_id, "organization_id": org["id"], "conversation_id": conv_id,
         "sender_type": "seller", "content": body.content, "delivery_status": "delivered", "created_at": now_iso()})
@@ -244,7 +258,8 @@ async def post_public_message(slug: str, conv_id: str, body: MessageBody):
                                           "Request a phone number before confirming an appointment"]
     result = await run_orchestrator(dealer_name=org["name"], policies=policies,
         stage=conv["current_stage"], state=state, summary=conv.get("rolling_summary", ""),
-        missing=_missing_fields(state), recent_messages=[clean(m) for m in recent], seller_message=body.content)
+        missing=_missing_fields(state), recent_messages=[clean(m) for m in recent], seller_message=body.content,
+        language=conv.get("language", "en"))
 
     if not result["valid"]:
         await db.messages.insert_one({"id": new_id(), "organization_id": org["id"], "conversation_id": conv_id,
@@ -279,17 +294,33 @@ async def post_public_message(slug: str, conv_id: str, body: MessageBody):
     if next_action in ("run_inventory_match", "offer_appointment"):
         matches = await _run_match(lead)
 
+    lang = conv.get("language", "en")
+    consented = await db.consent_records.find_one({"lead_id": lead["id"], "status": "accepted"})
+    recommendations = []
+    for m in matches[:3]:
+        v = m["inventory_vehicle"]
+        dg = await db.dealer_groups.find_one({"id": v.get("dealer_group_id")}) if v.get("dealer_group_id") else None
+        recommendations.append({"id": v["id"], "year": v.get("year"), "make": v.get("make"),
+            "model": v.get("model"), "trim": v.get("trim"), "price": v.get("price"), "mileage": v.get("mileage"),
+            "body_type": v.get("body_type"), "fuel_type": v.get("fuel_type"), "transmission": v.get("transmission"),
+            "exterior_colour": v.get("exterior_colour"), "image_url": v.get("image_url"),
+            "vehicle_url": v.get("vehicle_url"), "location": v.get("location"),
+            "dealer_group_id": v.get("dealer_group_id"), "dealer_group_name": dg["name"] if dg else None,
+            "match_reasons": m.get("match_reasons", [])})
+
     # Tease the single best match to the customer (inventory stays internal — never a full listing)
     content = data["responseMessage"]
     if matches and not lead.get("match_teased"):
         top = matches[0]["inventory_vehicle"]
-        dg = await db.dealer_groups.find_one({"id": top.get("dealer_group_id")}) if top.get("dealer_group_id") else None
         label = " ".join(str(x) for x in [top.get("year"), top.get("make"), top.get("model")] if x)
-        price = f" around ${top['price']:,.0f}" if top.get("price") else ""
-        where = f" at {dg['name']}" if dg and dg.get("name") else ""
-        if label:
-            content += (f"\n\nGood news — based on what you're looking for, I think we have a strong match: "
-                        f"a {label}{price}{where}. If you'd like, I can connect you with the dealership.")
+        price = f" (~${top['price']:,.0f})" if top.get("price") else ""
+        if label and lang == "fr":
+            content += (f"\n\nBonne nouvelle — d'après vos critères, je pense avoir une bonne correspondance : "
+                        f"une {label}{price}. Je peux vous mettre en relation avec le concessionnaire si vous le souhaitez.")
+            await db.leads.update_one({"id": lead["id"]}, {"$set": {"match_teased": True}})
+        elif label:
+            content += (f"\n\nGood news — based on what you're looking for, I think I have a strong match: "
+                        f"a {label}{price}. I can connect you with the dealership if you'd like.")
             await db.leads.update_one({"id": lead["id"]}, {"$set": {"match_teased": True}})
 
     await db.messages.insert_one({"id": new_id(), "organization_id": org["id"], "conversation_id": conv_id,
@@ -317,6 +348,10 @@ async def post_public_message(slug: str, conv_id: str, body: MessageBody):
                      {"lead_id": lead["id"], "score": score["total_score"]})
 
     resp = {"messages": await _conv_messages(conv_id), "ai_active": True, "next_action": next_action}
+    if recommendations:
+        resp["recommendations"] = recommendations
+    resp["can_refer"] = bool(matches) and not consented
+    resp["consented"] = bool(consented)
     if next_action == "offer_appointment":
         resp["show_appointments"] = True
     return resp
@@ -352,12 +387,75 @@ async def public_financing(slug: str, conv_id: str):
     return est
 
 
+async def _active_agreement(language: str):
+    v = await db.consent_agreement_versions.find_one({"language": language, "active": True}) \
+        or await db.consent_agreement_versions.find_one({"language": "en", "active": True})
+    return v
+
+
+@api.get("/public/{slug}/conversations/{conv_id}/consent-agreement")
+async def public_consent_agreement(slug: str, conv_id: str, language: str = "en"):
+    org = await _get_dealer_by_slug(slug)
+    conv = await db.conversations.find_one({"id": conv_id})
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    language = language if language in ("en", "fr") else "en"
+    agreement = await _active_agreement(language)
+    top = await db.inventory_matches.find_one({"lead_id": conv["lead_id"]}, sort=[("ranking", 1)])
+    dg = await db.dealer_groups.find_one({"id": top["dealer_group_id"]}) if top and top.get("dealer_group_id") else None
+    recipient = {"dealer_group_id": dg["id"], "name": dg["name"]} if dg else {"dealer_group_id": None, "name": org["name"]}
+    body_text = (agreement or {}).get("body_text", "")
+    body_text = body_text.replace("{{recipient}}", recipient["name"]).replace("{{platform}}", "AutoNova AI")
+    return {"version_id": (agreement or {}).get("id"), "version": (agreement or {}).get("version"),
+            "language": language, "body_text": body_text, "recipient": recipient}
+
+
+class ConsentBody(BaseModel):
+    accepted: bool
+    language: str = "en"
+    recipient_dealer_group_id: Optional[str] = None
+
+
+@api.post("/public/{slug}/conversations/{conv_id}/consent")
+async def public_consent(slug: str, conv_id: str, body: ConsentBody):
+    org = await _get_dealer_by_slug(slug)
+    conv = await db.conversations.find_one({"id": conv_id})
+    if not conv:
+        raise HTTPException(status_code=404, detail="Conversation not found")
+    lead = await db.leads.find_one({"id": conv["lead_id"]})
+    language = body.language if body.language in ("en", "fr") else "en"
+    agreement = await _active_agreement(language)
+    top = await db.inventory_matches.find_one({"lead_id": lead["id"]}, sort=[("ranking", 1)])
+    dg_id = body.recipient_dealer_group_id or (top.get("dealer_group_id") if top else None)
+    record = {"id": new_id(), "organization_id": org["id"], "lead_id": lead["id"], "seller_id": lead["seller_id"],
+        "agreement_version_id": (agreement or {}).get("id"), "agreement_version": (agreement or {}).get("version"),
+        "language": language, "recipient_dealer_group_ids": [dg_id] if dg_id else [],
+        "categories": ["contact_details", "vehicle_preferences", "conversation_summary"],
+        "status": "accepted" if body.accepted else "declined", "method": "web_click",
+        "accepted_at": now_iso() if body.accepted else None, "withdrawn_at": None,
+        "created_at": now_iso(), "updated_at": now_iso()}
+    await db.consent_records.insert_one(dict(record))
+    await audit(org["id"], "seller", lead["seller_id"], "consent", record["id"],
+                "accepted" if body.accepted else "declined")
+    if body.accepted and top:
+        v = await db.inventory_vehicles.find_one({"id": top["inventory_vehicle_id"]})
+        if v:
+            await _upsert_referral(lead, clean(v), status="sent")
+        await db.leads.update_one({"id": lead["id"]},
+            {"$set": {"status": "sent_to_dealership", "consent_status": "granted", "last_activity_at": now_iso()}})
+        await notify(org["id"], "dealership", org["id"], "in_app", "lead_referred", {"lead_id": lead["id"]})
+    elif not body.accepted:
+        await db.leads.update_one({"id": lead["id"]},
+            {"$set": {"consent_status": "declined", "last_activity_at": now_iso()}})
+    return {"status": record["status"], "shared_with": dg_id}
+
+
 @api.get("/public/{slug}/conversations/{conv_id}/appointments/availability")
 async def public_availability(slug: str, conv_id: str):
     org = await _get_dealer_by_slug(slug)
     rules = await db.appointment_availability.find({"organization_id": org["id"], "active": True}).to_list(100)
     booked = await db.appointments.find({"organization_id": org["id"],
-        "status": {"$in": ["proposed", "confirmed"]}}).to_list(500)
+        "status": {"$in": ["requested", "proposed", "confirmed"]}}).to_list(500)
     slots = generate_slots([clean(r) for r in rules], [clean(b) for b in booked])
     return {"slots": slots}
 
@@ -384,20 +482,22 @@ async def public_book(slug: str, conv_id: str, body: BookBody):
     appt = {"id": appt_id, "organization_id": org["id"], "dealership_location_id": loc["id"] if loc else None,
         "lead_id": lead["id"], "seller_id": lead["seller_id"], "assigned_user_id": lead.get("assigned_user_id"),
         "appointment_type": body.appointment_type, "start_time": body.start_time, "end_time": body.end_time,
-        "time_zone": org.get("time_zone", "America/Toronto"), "status": "confirmed",
-        "booking_source": "ai_conversation", "notes": "", "confirmation_sent_at": now_iso(),
+        "time_zone": org.get("time_zone", "America/Toronto"), "status": "requested",
+        "booking_source": "ai_conversation", "notes": "", "confirmation_sent_at": None,
         "created_at": now_iso(), "updated_at": now_iso()}
     await db.appointments.insert_one(dict(appt))
-    await db.leads.update_one({"id": lead["id"]}, {"$set": {"status": "appointment_booked", "last_activity_at": now_iso()}})
-    await db.conversations.update_one({"id": conv_id}, {"$set": {"current_stage": "appointment_confirmed"}})
-    await audit(org["id"], "seller", lead["seller_id"], "appointment", appt_id, "created")
-    await emit_event(org["id"], "appointment.booked", "appointment", appt_id)
-    await notify(org["id"], "dealership", org["id"], "in_app", "appointment_booked", {"appointment_id": appt_id})
-    seller = await db.sellers.find_one({"id": lead["seller_id"]})
-    if seller and seller.get("email"):
-        await notify(org["id"], "seller", seller["email"], "email", "appointment_confirmation", {"start_time": body.start_time})
-    confirm = (f"You're booked! Your {body.appointment_type.replace('_', ' ')} is confirmed. "
-               "A dealership representative will meet you then. You'll receive a confirmation shortly.")
+    await db.leads.update_one({"id": lead["id"]}, {"$set": {"status": "appointment_requested", "last_activity_at": now_iso()}})
+    await db.conversations.update_one({"id": conv_id}, {"$set": {"current_stage": "appointment_requested"}})
+    await audit(org["id"], "seller", lead["seller_id"], "appointment", appt_id, "requested")
+    await emit_event(org["id"], "appointment.requested", "appointment", appt_id)
+    await notify(org["id"], "dealership", org["id"], "in_app", "appointment_requested", {"appointment_id": appt_id})
+    lang = conv.get("language", "en")
+    if lang == "fr":
+        confirm = (f"Votre demande de rendez-vous ({body.appointment_type.replace('_', ' ')}) a été envoyée. "
+                   "Elle est en attente de confirmation par le concessionnaire — vous recevrez un avis dès qu'elle sera confirmée.")
+    else:
+        confirm = (f"Your {body.appointment_type.replace('_', ' ')} request has been sent. "
+                   "It's pending confirmation by the dealership — you'll be notified as soon as it's confirmed.")
     await db.messages.insert_one({"id": new_id(), "organization_id": org["id"], "conversation_id": conv_id,
         "sender_type": "ai", "content": confirm, "delivery_status": "delivered", "created_at": now_iso()})
     return {"appointment": clean(appt), "messages": await _conv_messages(conv_id)}
@@ -867,6 +967,35 @@ async def list_appointments(user: dict = Depends(get_current_user)):
     return out
 
 
+@api.post("/appointments/{appt_id}/confirm")
+async def confirm_appointment(appt_id: str, user: dict = Depends(get_current_user)):
+    appt = await db.appointments.find_one({"id": appt_id, "organization_id": _org(user)})
+    if not appt:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    await db.appointments.update_one({"id": appt_id}, {"$set": {"status": "confirmed",
+        "confirmation_sent_at": now_iso(), "confirmed_by": user["id"], "updated_at": now_iso()}})
+    await db.leads.update_one({"id": appt["lead_id"]}, {"$set": {"status": "appointment_confirmed"}})
+    await audit(_org(user), "user", user["id"], "appointment", appt_id, "confirmed")
+    await emit_event(_org(user), "appointment.confirmed", "appointment", appt_id)
+    seller = await db.sellers.find_one({"id": appt["seller_id"]})
+    if seller and seller.get("email"):
+        await notify(_org(user), "seller", seller["email"], "email", "appointment_confirmation",
+                     {"start_time": appt["start_time"]})
+    return {"success": True}
+
+
+class DeclineBody(BaseModel):
+    reason: Optional[str] = None
+
+
+@api.post("/appointments/{appt_id}/decline")
+async def decline_appointment(appt_id: str, body: DeclineBody = DeclineBody(), user: dict = Depends(get_current_user)):
+    await db.appointments.update_one({"id": appt_id, "organization_id": _org(user)},
+        {"$set": {"status": "declined", "decline_reason": body.reason, "updated_at": now_iso()}})
+    await audit(_org(user), "user", user["id"], "appointment", appt_id, "declined")
+    return {"success": True}
+
+
 @api.post("/appointments/{appt_id}/cancel")
 async def cancel_appointment(appt_id: str, user: dict = Depends(get_current_user)):
     await db.appointments.update_one({"id": appt_id, "organization_id": _org(user)},
@@ -1302,7 +1431,46 @@ async def startup():
     await db.referrals.create_index([("organization_id", 1), ("status", 1)])
     await seed_demo()
     await _migrate_dealer_groups()
+    await _seed_consent_agreements()
     logger.info("Startup complete")
+
+
+CONSENT_EN = (
+    "AutoNova AI — Consent to Share Your Information\n\n"
+    "AutoNova AI is an independent service that helps you find a suitable vehicle and connects you with "
+    "participating dealerships. To put you in contact with {{recipient}}, we need your permission to share the "
+    "information you provided in this conversation.\n\n"
+    "What will be shared: your contact details (name, phone, email), your vehicle preferences and budget, and a "
+    "summary of this conversation.\n\n"
+    "Who receives it: {{recipient}}.\n\n"
+    "Why: so the dealership can follow up about the vehicle you're interested in and arrange an appointment.\n\n"
+    "How it's used: only to contact you about this request. We do not sell your information. You can withdraw your "
+    "consent at any time by contacting AutoNova AI, subject to applicable law.\n\n"
+    "By accepting, you agree to share the information above with the named dealership. If you decline, your personal "
+    "information will not be forwarded.")
+
+CONSENT_FR = (
+    "AutoNova AI — Consentement au partage de vos renseignements\n\n"
+    "AutoNova AI est un service indépendant qui vous aide à trouver un véhicule adapté et vous met en relation avec "
+    "des concessionnaires partenaires. Pour vous mettre en contact avec {{recipient}}, nous avons besoin de votre "
+    "autorisation pour partager les renseignements fournis dans cette conversation.\n\n"
+    "Ce qui sera partagé : vos coordonnées (nom, téléphone, courriel), vos préférences de véhicule et votre budget, "
+    "ainsi qu'un résumé de cette conversation.\n\n"
+    "Qui les reçoit : {{recipient}}.\n\n"
+    "Pourquoi : afin que le concessionnaire puisse faire un suivi concernant le véhicule qui vous intéresse et "
+    "organiser un rendez-vous.\n\n"
+    "Utilisation : uniquement pour vous contacter au sujet de cette demande. Nous ne vendons pas vos renseignements. "
+    "Vous pouvez retirer votre consentement en tout temps en communiquant avec AutoNova AI, sous réserve de la loi "
+    "applicable.\n\n"
+    "En acceptant, vous consentez à partager les renseignements ci-dessus avec le concessionnaire nommé. Si vous "
+    "refusez, vos renseignements personnels ne seront pas transmis.")
+
+
+async def _seed_consent_agreements():
+    for lang, text in (("en", CONSENT_EN), ("fr", CONSENT_FR)):
+        if not await db.consent_agreement_versions.find_one({"language": lang, "active": True}):
+            await db.consent_agreement_versions.insert_one({"id": new_id(), "version": "1.0", "language": lang,
+                "body_text": text, "active": True, "created_at": now_iso()})
 
 
 async def _migrate_dealer_groups():
