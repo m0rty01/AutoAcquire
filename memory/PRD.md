@@ -144,3 +144,21 @@ Implemented & tested (iteration_10.json: backend 18/20 then all fixes verified, 
 - Phase 5: H. Grégoire + auction extension (conditional).
 - Cross-cutting: admin-pages i18n; customer identity/portal; legal counsel sign-off on Law 25/PIPEDA consent wording.
 
+## Phase 4 increment — Sale Verification + Commission (2026-11-21)
+Implemented the Critical revenue backbone (PRD Stages 10–11), extending existing referrals/dealer-groups (no rebuild):
+- **Dealer-group commission config**: added `commission_model` (fixed|percent|volume), `commission_rate`, `commission_currency` to dealer_groups + Partners edit form.
+- **Sales (`sales` collection)**: POST /api/sales (report from a referral; 409 if one already reported), GET /api/sales, POST /api/sales/{id}/verify (admin; generates a commission_transaction idempotently, 400 if already verified), POST /api/sales/{id}/reject (admin; soft-cancels commission, no hard delete). Report → referral status "converted"; verify → "paid".
+- **commission_transactions**: generated on verify; amount via `_calc_commission` (percent = sale×rate%, fixed/volume = rate or referral_amount fallback); status payable/cancelled; one active txn per sale.
+- **GET /api/commissions/report**: referrals, verified sales, conversion %, total commission, by_status, by_dealer_group.
+- **Frontend**: `Sales.jsx` (stat cards, report-sale form, verify/reject actions, commission column). Nav "Sales", route /app/sales.
+- Verified: curl (report/409 dup/verify/400 re-verify/idempotent/report) + `_calc_commission` for all 4 models + UI screenshot. No Phase 1 regressions (purely additive).
+
+### Remaining PRD Phases 2–4 (sequenced, not yet built)
+- Phase 2: Le Don de L'Auto adapter + external vehicle-code↔Le Prix du Gros mapping table (history/conflict). **Blocked: partner feed/API docs + credentials.**
+- Phase 2: H. Grégoire adapter (incoming inventory + outgoing consented leads). **Blocked: partner access + agreement.**
+- Phase 3: CRM customer profiles + Kanban sales pipeline + sales-rep/dealership-manager accounts + customer activity timeline.
+- Phase 3: Communication center (Email/SMS real send) + follow-up automation engine + bilingual templates. **Needs provider keys (Resend/Twilio).**
+- Phase 4: Test-drive tracking (extend appointments); commission reporting CSV/PDF export + volume tiers.
+- Localization: full admin EN/FR (customer journey already bilingual).
+- Legal: Law 25 / PIPEDA consent wording sign-off.
+

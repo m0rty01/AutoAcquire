@@ -136,6 +136,8 @@ function GroupCard({ group, onChanged }) {
       await client.patch(`/dealer-groups/${group.id}`, {
         name: form.name, website: form.website, referral_amount: Number(form.referral_amount) || 0,
         referral_program: form.referral_program, status: form.status,
+        commission_model: form.commission_model || "fixed", commission_rate: Number(form.commission_rate) || 0,
+        commission_currency: form.commission_currency || "CAD",
       });
       toast.success("Updated"); setEditing(false); onChanged();
     } catch { toast.error("Update failed"); }
@@ -179,6 +181,8 @@ function GroupCard({ group, onChanged }) {
           <input type="number" placeholder="Referral amount ($)" value={form.referral_amount ?? ""} onChange={(e) => setForm({ ...form, referral_amount: e.target.value })} className="rounded-[4px] border border-input bg-background px-2 py-1.5 text-sm outline-none focus:border-primary" />
           <input placeholder="Referral program (e.g. Mon Coéquipier)" value={form.referral_program || ""} onChange={(e) => setForm({ ...form, referral_program: e.target.value })} className="rounded-[4px] border border-input bg-background px-2 py-1.5 text-sm outline-none focus:border-primary" />
           <select value={form.status || "active"} onChange={(e) => setForm({ ...form, status: e.target.value })} className="rounded-[4px] border border-input bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"><option value="active">active</option><option value="paused">paused</option></select>
+          <select data-testid="commission-model-select" value={form.commission_model || "fixed"} onChange={(e) => setForm({ ...form, commission_model: e.target.value })} className="rounded-[4px] border border-input bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"><option value="fixed">Fixed $ / sale</option><option value="percent">% of sale</option><option value="volume">Volume-based</option></select>
+          <input type="number" placeholder={form.commission_model === "percent" ? "Rate (%)" : "Amount ($/sale)"} value={form.commission_rate ?? ""} onChange={(e) => setForm({ ...form, commission_rate: e.target.value })} className="rounded-[4px] border border-input bg-background px-2 py-1.5 text-sm outline-none focus:border-primary" />
           <button data-testid="save-group-btn" onClick={saveEdit} className="bg-primary text-primary-foreground rounded-[4px] text-sm font-semibold hover:opacity-90">Save</button>
         </div>
       )}

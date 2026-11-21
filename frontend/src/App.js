@@ -12,6 +12,7 @@ import LeadDetail from "@/pages/LeadDetail";
 import Inventory from "@/pages/Inventory";
 import Partners from "@/pages/Partners";
 import Referrals from "@/pages/Referrals";
+import Sales from "@/pages/Sales";
 import Appointments from "@/pages/Appointments";
 import Analytics from "@/pages/Analytics";
 import Settings from "@/pages/Settings";
@@ -41,6 +42,7 @@ function RootRouter() {
         <Route path="inventory" element={<Inventory />} />
         <Route path="partners" element={<Partners />} />
         <Route path="referrals" element={<Referrals />} />
+        <Route path="sales" element={<Sales />} />
         <Route path="appointments" element={<Appointments />} />
         <Route path="analytics" element={<Analytics />} />
         <Route path="settings" element={<Settings />} />

@@ -1046,6 +1046,119 @@ async def noshow_appointment(appt_id: str, user: dict = Depends(get_current_user
     return {"success": True}
 
 
+# ---------------- sales verification + commissions ----------------
+SALE_STATUSES = ["reported", "verified", "rejected"]
+
+
+def _calc_commission(dg: dict, sale_amount):
+    model = (dg or {}).get("commission_model", "fixed")
+    rate = (dg or {}).get("commission_rate", 0) or 0
+    if model == "percent" and sale_amount:
+        return round(float(sale_amount) * float(rate) / 100.0, 2), f"{rate}% of {sale_amount}"
+    # fixed and volume (volume tiers are a future extension) fall back to a per-sale amount
+    amount = rate or (dg or {}).get("referral_amount", 0) or 0
+    return float(amount), f"flat {amount}"
+
+
+class SaleBody(BaseModel):
+    referral_id: str
+    sale_amount: Optional[float] = None
+    sale_date: Optional[str] = None
+    vehicle_vin: Optional[str] = None
+
+
+@api.post("/sales")
+async def report_sale(body: SaleBody, user: dict = Depends(get_current_user)):
+    ref = await db.referrals.find_one({"id": body.referral_id, "organization_id": _org(user)})
+    if not ref:
+        raise HTTPException(status_code=404, detail="Referral not found")
+    if await db.sales.find_one({"referral_id": ref["id"], "status": {"$ne": "rejected"}}):
+        raise HTTPException(status_code=409, detail="A sale is already reported for this referral")
+    sale = {"id": new_id(), "organization_id": _org(user), "lead_id": ref["lead_id"], "referral_id": ref["id"],
+        "dealer_group_id": ref.get("dealer_group_id"), "inventory_vehicle_id": ref.get("inventory_vehicle_id"),
+        "vehicle_vin": body.vehicle_vin, "vehicle_label": ref.get("vehicle_label"),
+        "sale_amount": body.sale_amount, "sale_date": body.sale_date or now_iso(),
+        "reported_by": user["id"], "status": "reported", "verified_by": None, "verified_at": None,
+        "created_at": now_iso(), "updated_at": now_iso()}
+    await db.sales.insert_one(dict(sale))
+    await db.referrals.update_one({"id": ref["id"]}, {"$set": {"status": "converted", "updated_at": now_iso()},
+        "$push": {"status_history": {"status": "converted", "at": now_iso()}}})
+    await audit(_org(user), "user", user["id"], "sale", sale["id"], "reported")
+    return clean(sale)
+
+
+@api.get("/sales")
+async def list_sales(user: dict = Depends(get_current_user), status: Optional[str] = None):
+    q = {"organization_id": _org(user)}
+    if status:
+        q["status"] = status
+    rows = await db.sales.find(q).sort("created_at", -1).to_list(1000)
+    groups = {g["id"]: g for g in await db.dealer_groups.find({"organization_id": _org(user)}).to_list(500)}
+    out = []
+    for s in rows:
+        clean(s)
+        g = groups.get(s.get("dealer_group_id"))
+        s["dealer_group_name"] = g["name"] if g else None
+        comm = await db.commission_transactions.find_one({"sale_id": s["id"]})
+        s["commission"] = clean(comm) if comm else None
+        out.append(s)
+    return {"sales": out, "statuses": SALE_STATUSES}
+
+
+@api.post("/sales/{sale_id}/verify")
+async def verify_sale(sale_id: str, user: dict = Depends(require_roles("platform_admin", "dealership_admin"))):
+    sale = await db.sales.find_one({"id": sale_id, "organization_id": _org(user)})
+    if not sale:
+        raise HTTPException(status_code=404, detail="Sale not found")
+    if sale["status"] == "verified":
+        raise HTTPException(status_code=400, detail="Sale already verified")
+    await db.sales.update_one({"id": sale_id}, {"$set": {"status": "verified", "verified_by": user["id"],
+        "verified_at": now_iso(), "updated_at": now_iso()}})
+    dg = await db.dealer_groups.find_one({"id": sale.get("dealer_group_id")}) if sale.get("dealer_group_id") else None
+    amount, basis = _calc_commission(dg, sale.get("sale_amount"))
+    if not await db.commission_transactions.find_one({"sale_id": sale_id, "status": {"$ne": "cancelled"}}):  # idempotent
+        await db.commission_transactions.insert_one({"id": new_id(), "organization_id": _org(user),
+            "sale_id": sale_id, "referral_id": sale["referral_id"], "dealer_group_id": sale.get("dealer_group_id"),
+            "amount": amount, "currency": (dg or {}).get("commission_currency", "CAD"),
+            "model": (dg or {}).get("commission_model", "fixed"), "basis": basis, "status": "payable",
+            "created_at": now_iso(), "updated_at": now_iso()})
+    await db.referrals.update_one({"id": sale["referral_id"]}, {"$set": {"status": "paid", "updated_at": now_iso()}})
+    await audit(_org(user), "user", user["id"], "sale", sale_id, "verified")
+    return {"success": True, "commission_amount": amount}
+
+
+@api.post("/sales/{sale_id}/reject")
+async def reject_sale(sale_id: str, user: dict = Depends(require_roles("platform_admin", "dealership_admin"))):
+    sale = await db.sales.find_one({"id": sale_id, "organization_id": _org(user)})
+    if not sale:
+        raise HTTPException(status_code=404, detail="Sale not found")
+    await db.sales.update_one({"id": sale_id}, {"$set": {"status": "rejected", "updated_at": now_iso()}})
+    await db.commission_transactions.update_many({"sale_id": sale_id},
+        {"$set": {"status": "cancelled", "updated_at": now_iso()}})
+    await audit(_org(user), "user", user["id"], "sale", sale_id, "rejected")
+    return {"success": True}
+
+
+@api.get("/commissions/report")
+async def commissions_report(user: dict = Depends(get_current_user)):
+    org = _org(user)
+    referrals = await db.referrals.count_documents({"organization_id": org})
+    verified = await db.sales.count_documents({"organization_id": org, "status": "verified"})
+    reported = await db.sales.count_documents({"organization_id": org, "status": "reported"})
+    txns = await db.commission_transactions.find({"organization_id": org}).to_list(5000)
+    groups = {g["id"]: g for g in await db.dealer_groups.find({"organization_id": org}).to_list(500)}
+    by_status, by_group = {}, {}
+    total = 0
+    for t in txns:
+        by_status[t["status"]] = by_status.get(t["status"], 0) + t.get("amount", 0)
+        gname = (groups.get(t.get("dealer_group_id")) or {}).get("name", "—")
+        by_group[gname] = by_group.get(gname, 0) + t.get("amount", 0)
+        total += t.get("amount", 0)
+    return {"total_referrals": referrals, "verified_sales": verified, "reported_pending": reported,
+            "conversion_rate": round(verified / referrals * 100, 1) if referrals else 0,
+            "total_commission": round(total, 2), "by_status": by_status, "by_dealer_group": by_group}
+
+
 # ---------------- analytics + dashboard ----------------
 @api.get("/analytics/overview")
 async def analytics_overview(user: dict = Depends(get_current_user)):
@@ -1250,6 +1363,9 @@ class DealerGroupBody(BaseModel):
     website: Optional[str] = None
     referral_amount: float = 0
     referral_program: Optional[str] = None
+    commission_model: str = "fixed"   # fixed | percent | volume
+    commission_rate: float = 0         # $ for fixed/volume, % for percent
+    commission_currency: str = "CAD"
     locations: list = []
     status: str = "active"
 

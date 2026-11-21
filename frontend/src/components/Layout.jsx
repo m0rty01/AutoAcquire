@@ -3,7 +3,7 @@ import { useAuth } from "@/context/AuthContext";
 import OnboardingWizard from "@/pages/OnboardingWizard";
 import {
   SquaresFour, Users, CalendarBlank, Car, ChartBar, GearSix, SignOut, Buildings, Robot, Copy,
-  Handshake, HandArrowDown,
+  Handshake, HandArrowDown, Receipt,
 } from "@phosphor-icons/react";
 import { toast } from "sonner";
 
@@ -14,6 +14,7 @@ const NAV = [
   { to: "/app/inventory", label: "Inventory", icon: Car },
   { to: "/app/partners", label: "Partners", icon: Handshake },
   { to: "/app/referrals", label: "Referrals", icon: HandArrowDown },
+  { to: "/app/sales", label: "Sales", icon: Receipt },
   { to: "/app/analytics", label: "Analytics", icon: ChartBar },
   { to: "/app/settings", label: "Settings", icon: GearSix },
 ];
