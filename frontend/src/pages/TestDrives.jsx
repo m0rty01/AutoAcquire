@@ -5,6 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { PageHeader, Loading, MetricTile } from "@/components/Bits";
 import { toast } from "sonner";
 import { Plus } from "@phosphor-icons/react";
+import { titleize } from "@/components/ui/badges";
 import { Pill, Table, fmtDate, inputCls } from "@/components/profile/shared";
 import { NewTestDrive, TDActions } from "@/components/testdrives/TDParts";
 
@@ -52,7 +53,7 @@ export default function TestDrives() {
         <MetricTile label="To sale" value={`${dash.conversion_rate}%`} hint={`${dash.converted_to_sale} of ${dash.completed} completed`} />
       </div>
       <div className="flex flex-wrap gap-2 mb-4">
-        {sel("status", ["requested", "pending_confirmation", "confirmed", "completed", "cancelled", "no_show", "dealership_declined"].map((s) => [s, s.replace(/_/g, " ")]), "All statuses")}
+        {sel("status", ["requested", "pending_confirmation", "confirmed", "completed", "cancelled", "no_show", "dealership_declined"].map((s) => [s, titleize(s)]), "All statuses")}
         {groups.length > 0 && sel("dealer_group_id", groups.map((g) => [g.id, g.name]), "All dealerships")}
         {!isRep && sel("assigned_user_id", reps.map((u) => [u.id, `${u.first_name} ${u.last_name}`]), "All representatives")}
         <input data-testid="td-filter-date_from" type="date" value={f.date_from} onChange={(e) => setF({ ...f, date_from: e.target.value })} className={`${inputCls} w-auto`} />

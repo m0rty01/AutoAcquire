@@ -7,7 +7,7 @@ from fastapi import APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel, EmailStr
 from google.oauth2 import id_token as google_id_token
 from google.auth.transport import requests as google_requests
-from db import db, new_id, now_iso, clean, audit, rate_limited
+from db import db, new_id, now_iso, clean, audit, rate_limited, is_limited
 
 JWT_ALGORITHM = "HS256"
 auth_router = APIRouter(prefix="/api/auth", tags=["auth"])
@@ -132,11 +132,13 @@ async def register(body: RegisterBody):
 @auth_router.post("/login")
 async def login(body: LoginBody, request: Request):
     email = body.email.lower()
-    ip = (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "?")).split(",")[0].strip()
-    if await rate_limited(f"login:{email}", 20, 900) or await rate_limited(f"login-ip:{ip}", 300, 900):
-        raise HTTPException(status_code=429, detail="Too many sign-in attempts. Please wait 15 minutes and try again.")
+    ip = (request.headers.get("x-forwarded-for") or (request.client.host if request.client else "?")).split(",")[-1].strip()
+    if await is_limited(f"login:{email}", 10, 900) or await is_limited(f"login-ip:{ip}", 100, 900):
+        raise HTTPException(status_code=429, detail="Too many failed sign-in attempts. Please wait 15 minutes and try again.")
     user = await db.users.find_one({"email": email})
-    if not user or not verify_password(body.password, user.get("password_hash", "")):
+    if not user or not verify_password(body.password, user.get("password_hash") or ""):
+        await rate_limited(f"login:{email}", 10, 900)  # only failed attempts count
+        await rate_limited(f"login-ip:{ip}", 100, 900)
         raise HTTPException(status_code=401, detail="Invalid email or password")
     if user.get("status") == "inactive":
         raise HTTPException(status_code=403, detail="This account has been deactivated")

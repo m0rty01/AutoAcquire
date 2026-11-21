@@ -88,3 +88,9 @@ async def rate_limited(key: str, limit: int, window_seconds: int) -> bool:
         {"$inc": {"count": 1}, "$setOnInsert": {"expires_at": now + timedelta(seconds=window_seconds * 2)}},
         upsert=True, return_document=True)
     return doc["count"] > limit
+
+
+async def is_limited(key: str, limit: int, window_seconds: int) -> bool:
+    bucket = int(datetime.now(timezone.utc).timestamp()) // window_seconds
+    doc = await db.rate_limits.find_one({"key": f"{key}:{bucket}"})
+    return bool(doc and doc["count"] >= limit)

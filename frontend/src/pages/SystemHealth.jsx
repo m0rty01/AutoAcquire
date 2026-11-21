@@ -1,12 +1,16 @@
 import { useEffect, useState } from "react";
 import client from "@/lib/api";
+import { Navigate } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
 import { PageHeader, Loading } from "@/components/Bits";
 import { CheckCircle, WarningCircle } from "@phosphor-icons/react";
 import { tr } from "@/lib/adminI18n";
 
 export default function SystemHealth() {
+  const { user } = useAuth();
   const [d, setD] = useState(null);
   useEffect(() => { client.get("/system/health").then((r) => setD(r.data)).catch(() => setD({ checks: [] })); }, []);
+  if (user && !["platform_admin", "platform_support", "dealership_admin"].includes(user.role)) return <Navigate to="/app/dashboard" replace />;
   if (!d) return <Loading />;
   return (
     <div data-testid="system-health-page">

@@ -1475,7 +1475,7 @@ class DealerGroupBody(BaseModel):
 
 @api.get("/dealer-groups")
 async def list_dealer_groups(user: dict = Depends(get_current_user)):
-    groups = await db.dealer_groups.find({"organization_id": _org(user)}).sort("created_at", 1).to_list(500)
+    groups = await db.dealer_groups.find({"organization_id": _org(user), "status": {"$ne": "archived"}}).sort("created_at", 1).to_list(500)
     out = []
     for g in groups:
         clean(g)
@@ -1510,8 +1510,14 @@ async def delete_dealer_group(dg_id: str, user: dict = Depends(require_roles("de
     dg = await db.dealer_groups.find_one({"id": dg_id, "organization_id": _org(user)})
     if dg and dg.get("is_default"):
         raise HTTPException(status_code=400, detail="Cannot delete the default dealer group")
-    await db.dealer_groups.delete_one({"id": dg_id, "organization_id": _org(user)})
-    await db.inventory_sources.delete_many({"dealer_group_id": dg_id, "organization_id": _org(user)})
+    if not dg:
+        raise HTTPException(status_code=404, detail="Dealer group not found")
+    # soft-archive: referrals, sales and commissions keep pointing at a real record
+    await db.dealer_groups.update_one({"id": dg_id}, {"$set": {"status": "archived", "archived_at": now_iso(), "updated_at": now_iso()}})
+    await db.inventory_sources.update_many({"dealer_group_id": dg_id, "organization_id": _org(user)}, {"$set": {"enabled": False}})
+    await db.inventory_vehicles.update_many({"dealer_group_id": dg_id, "organization_id": _org(user)},
+                                            {"$set": {"status": "unavailable", "updated_at": now_iso()}})
+    await audit(_org(user), "user", user["id"], "dealer_group", dg_id, "archived")
     return {"success": True}
 
 

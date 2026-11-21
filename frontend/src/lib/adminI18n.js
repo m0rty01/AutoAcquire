@@ -52,7 +52,7 @@ const FR = {
   Promotional: "Promotionnel", Source: "Source", Recorded: "Enregistré", Role: "Rôle", "Last login": "Dernière connexion",
   When: "Quand", "Dir.": "Dir.", Template: "Modèle", Recipient: "Destinataire", Rep: "Repr.", Actions: "Actions",
   Automation: "Automatisation", Kind: "Genre", "Run at": "Exécution", "Actions / error": "Actions / erreur", Total: "Total",
-  Upcoming: "À venir", Completed: "Terminés", Cancelled: "Annulés", "No-shows": "Absences", "To sale": "En vente",
+  Upcoming: "À venir", Completed: "Terminés", Cancelled: "Annulé", "No-shows": "Absences", "To sale": "En vente",
   "Sale $": "Vente $", Type_: "Type", Basis: "Base de calcul", "External / codes": "Externe / codes", VIN: "NIV",
   "Internal vehicle": "Véhicule interne", "Proposed change": "Changement proposé", Referrals_: "Recommandations",
   "Verified sales": "Ventes vérifiées", Conversion: "Conversion", "Commission total": "Total des commissions", Amount: "Montant",
@@ -89,7 +89,12 @@ const FR = {
   "New user": "Nouvel utilisateur", "Reset password": "Réinitialiser le mot de passe", Deactivate: "Désactiver", Reactivate: "Réactiver",
   Activate: "Activer", "New test drive": "Nouvel essai routier", "Run checks now": "Lancer les vérifications", "Save changes": "Enregistrer",
   "Sync now": "Synchroniser", "Add mapping": "Ajouter la correspondance", "Accept new": "Accepter la nouvelle", "Keep existing": "Conserver l'existante",
-  Retry: "Réessayer", "What to do…": "À faire…", "Internal note…": "Note interne…", "Search customers…": "Rechercher des clients…",
+  Retry: "Réessayer", "Report a sale": "Déclarer une vente", "Verify": "Vérifier", "Reject": "Rejeter", Submit: "Soumettre",
+  "tier adjustment": "ajustement de palier", "Imported": "Importés", "Updated": "Mis à jour", "Sold/removed": "Vendus/retirés",
+  "Live vehicles": "Véhicules actifs", Conflicts: "Conflits", "Waiting on partner": "En attente du partenaire",
+  "Sandbox (sample data)": "Bac à sable (données d'exemple)", "Pending Credentials": "En attente d'identifiants", Sandbox: "Bac à sable",
+  "Conversation workspace": "Espace de conversation", "Hot leads": "Prospects chauds", "New leads": "Nouveaux prospects",
+  "Needs review": "À réviser", "Qualification rate": "Taux de qualification", Seller: "Client", Intent: "Intention", Score: "Pointage", Appt: "RDV", "What to do…": "À faire…", "Internal note…": "Note interne…", "Search customers…": "Rechercher des clients…",
   "Search name or email…": "Rechercher nom ou courriel…", "Search customer…": "Rechercher un client…", "Loading…": "Chargement…",
 };
 
@@ -98,6 +103,6 @@ export function tr(s) {
   return FR[s] ?? s;
 }
 
-export const fmtDateL = (v) => (v ? new Date(v).toLocaleString(LOCALE) : "—");
+export const fmtDateL = (v) => (v ? new Date(v).toLocaleString(LOCALE, { dateStyle: "medium", timeStyle: "short" }) : "—");
 export const fmtDayL = (v) => (v ? new Date(v).toLocaleDateString(LOCALE) : "—");
 export const moneyL = (v) => (v == null ? "—" : new Intl.NumberFormat(LOCALE, { style: "currency", currency: "CAD", maximumFractionDigits: 2 }).format(Number(v)));

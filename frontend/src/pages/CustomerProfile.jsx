@@ -43,7 +43,7 @@ export default function CustomerProfile() {
   return (
     <div data-testid="customer-profile">
       <button data-testid="profile-back-btn" onClick={() => navigate(-1)} className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4 transition-colors">
-        <ArrowLeft size={16} /> Back
+        <ArrowLeft size={16} /> {tr("Back")}
       </button>
       <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
         <div>
@@ -56,8 +56,8 @@ export default function CustomerProfile() {
           </div>
         </div>
         <div className="flex gap-2">
-          {!readOnly && <button data-testid="edit-customer-btn" onClick={() => setEditing(true)} className="flex items-center gap-1.5 text-xs bg-secondary hover:bg-accent px-3 py-2 rounded-[4px] transition-colors"><PencilSimple size={14} /> Edit customer</button>}
-          <button data-testid="open-lead-workspace-btn" onClick={() => navigate(`/app/leads/${id}`)} className="flex items-center gap-1.5 text-xs bg-secondary hover:bg-accent px-3 py-2 rounded-[4px] transition-colors"><ChatsCircle size={14} /> Conversation workspace</button>
+          {!readOnly && <button data-testid="edit-customer-btn" onClick={() => setEditing(true)} className="flex items-center gap-1.5 text-xs bg-secondary hover:bg-accent px-3 py-2 rounded-[4px] transition-colors"><PencilSimple size={14} /> {tr("Edit customer")}</button>}
+          <button data-testid="open-lead-workspace-btn" onClick={() => navigate(`/app/leads/${id}`)} className="flex items-center gap-1.5 text-xs bg-secondary hover:bg-accent px-3 py-2 rounded-[4px] transition-colors"><ChatsCircle size={14} /> {tr("Conversation workspace")}</button>
         </div>
       </div>
 

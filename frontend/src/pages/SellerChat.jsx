@@ -37,8 +37,11 @@ export default function SellerChat() {
   const [consentResult, setConsentResult] = useState(null);
   const endRef = useRef(null);
   const tr = (k) => t(lang, k);
+  const started = useRef(false);
 
   useEffect(() => {
+    if (started.current) return;
+    started.current = true;
     (async () => {
       try {
         const { data } = await client.get(`/public/${slug}`);

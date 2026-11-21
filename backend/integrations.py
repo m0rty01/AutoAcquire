@@ -183,7 +183,7 @@ async def list_integrations(user: dict = Depends(require_roles(*VIEW))):
         i.update(name=a.name, kind=a.kind, required=a.required, status=_status(i),
                  vehicle_count=await db.inventory_vehicles.count_documents({"organization_id": user["organization_id"], "source": {"$regex": f"^partner:{key}"}, "status": "available"}),
                  open_conflicts=await db.external_vehicle_mappings.count_documents({"organization_id": user["organization_id"], "source": key, "status": "conflict"})
-                 + await db.code_mappings.count_documents({"organization_id": user["organization_id"], "status": "conflict"}) * (key == "le_prix_du_gros"))
+                 + await db.code_mappings.count_documents({"organization_id": user["organization_id"], "status": "conflict"}) * (key in ("le_prix_du_gros", "le_don_de_lauto")))
         out.append(i)
     return out
 
@@ -272,7 +272,7 @@ async def resolve_mapping(mid: str, body: ResolveBody, user: dict = Depends(requ
         hist = {"at": now_iso(), "by": user.get("email"), "resolution": body.action, "note": body.note, "previous": {k: m.get(k) for k in p}}
         upd = {"status": "active", "proposed": None, "updated_at": now_iso()}
         if body.action == "accept_proposed":
-            upd.update({k: v for k, v in p.items() if k not in ("at", "by")})
+            upd.update({k: v for k, v in p.items() if k not in ("at", "by") and v is not None})
         await coll.update_one({"id": mid}, {"$set": upd, "$push": {"history": hist}})
         await audit(user["organization_id"], "user", user["id"], "mapping", mid, f"conflict_{body.action}")
         return {"success": True}

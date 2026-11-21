@@ -171,3 +171,26 @@ Implemented on top of existing leads/referrals (no rebuild):
 - **NOT yet built (Milestone 1 remainder)**: dedicated 10-tab Customer Profile page; full user-management UI (create rep/manager, password reset, deactivate) — users API exists, UI pending.
 - **Milestone 2 (Email/SMS/automation) BLOCKED**: needs Resend + Twilio credentials.
 
+
+## Remaining-Development PRD — Milestones 1–7 (2026-11-21)
+Tested: iteration_11 (M1), iteration_12 (M2–M4), iteration_13 (M5–M7) + fixes self-verified.
+- **M1A Customer Profile** `/app/customers/:id` — 10 tabs (Overview, Vehicle Preferences, Conversation, Activities, Appointments, Test Drives, Referrals, Sales, Communications, Consent & Privacy) + actions (assign, stage, follow-ups, notes, edit customer, comm permissions, consent withdrawal as a NEW record). Backend `crm.py` (`GET /api/leads/{id}/profile`, scoped_lead rep isolation).
+- **M1B User Management** `/app/users` — `user_admin.py`: roles Super Admin/platform_admin, Platform Support/platform_support, dealership_admin, Dealership Manager, Sales Rep; create via secure one-time setup link (no passwords), edit/role/dealer group, deactivate/reactivate (blocks login + tokens), admin password reset, last login. Managers can only manage reps. `/reset-password` page.
+- **M2 Communications** — `comms.py` + `templates.py` (bilingual server-side templates). Resend (user's own key, From `Support <support@autonovaia.ca>`) + Twilio (keys later). Statuses queued/sent/delivered/bounced/failed/undelivered + `not_configured`/`blocked` (honest when keys or permissions missing). Webhooks `/api/webhooks/resend` (svix sig), `/api/webhooks/twilio/status|inbound` (X-Twilio-Signature, STOP/ARRET opt-out). Idempotency keys. Communication Center `/app/communications`; send panel in profile. Separate permissions operational/appointment/promotional.
+- **M2C Automations** — `automation.py`: workflows A–E (new consented lead, uncontacted, appointment confirmation+reminder, test drive confirmation+reminder, inactive customer); config (enable, delay, template, language, channels, assignee, params), run history, retry, idempotent runs, reminders auto-cancelled/skipped when source changes. Cron `run-automations` every 15 min (`/api/cron/automations`). Page `/app/automations`.
+- **M3 Test Drives** — `testdrives.py`, page `/app/test-drives`: statuses requested/pending_confirmation/confirmed/completed/cancelled/no_show/dealership_declined, transitions enforced, notes, feedback, link-sale, dashboard (conversion), filters; profile tab.
+- **M4 Commissions** — `commissions.py`: versioned agreements (`PUT /api/dealer-groups/{id}/commission-agreement`, history), volume tiers monthly/quarterly, incremental vs retroactive (uplifts = separate adjustment lines, history never rewritten), effective_date; ledger + CSV/PDF export with filters; finance data hidden from reps.
+- **M5 Integrations** — `integrations.py`, page `/app/integrations`: Le Don de L'Auto, H. Grégoire (separate adapter), Le Prix du Gros (code mapping). PENDING CREDENTIALS until docs/keys; sandbox mode with labelled SAMPLE data (never used in customer matching). External vehicle mappings (source+dealer group+external id), LDDA↔LPDG code mappings, conflicts → manual review (never overwrite), sync logs.
+- **M6 Localization** — `lib/adminI18n.js` EN/FR-CA dictionary, header switcher, persisted `PATCH /api/me/preferences`, fr-CA dates/currency. **Partial coverage**: Leads list, Lead workspace, Dashboard, Inventory, Partners, Settings and many helper texts still English.
+- **M7 Security/ops** — Mongo rate limiting (failed logins 10/15min/email, forgot-password, public chat), rep isolation on appointments/referrals/sales, `/api/health`, `/app/health` System Health, dealer-group delete → soft archive, DEPLOYMENT.md backups section.
+
+## Backlog / next
+- P0: User adds RESEND_API_KEY (+ RESEND_WEBHOOK_SECRET, verify autonovaia.ca in Resend) and later TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN/TWILIO_FROM_NUMBER; then live-test delivery + webhooks.
+- P0: Partner docs/credentials for Le Don de L'Auto, Le Prix du Gros, H. Grégoire → implement real `fetch()`/`normalize()`.
+- P1: Finish French coverage on remaining admin pages; shadcn date pickers; legal review (Law 25 / PIPEDA / CASL) — no compliance claimed.
+- P1: Formal security audit; GitHub save + Render redeploy (production still behind preview).
+
+## Resend live check (2026-11-21)
+- RESEND_API_KEY valid: test send via onboarding@resend.dev → `sent` with provider id; signed webhook → `delivered`; bad signature → 401.
+- Blocker: autonovaia.ca not verified in Resend (403) — real sends from support@autonovaia.ca fail (recorded as `failed`, retryable) until DNS verified.
+- RESEND_WEBHOOK_SECRET saved does not start with `whsec_` — likely not the Resend signing secret; real webhooks may be rejected until replaced.

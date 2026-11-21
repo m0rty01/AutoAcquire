@@ -1,0 +1,58 @@
+{
+  "summary": "Iteration 13: tested the iteration_12 fixes, M5 partner integrations (sandbox/pending credentials, code mapping and conflicts), M6 EN/FR admin localization, and M7 security (rate limits, rep isolation, health), on backend and frontend. New suite tests/test_m5_m6_m7_integrations_i18n_security.py: 23/24 pass. The 1 failure is a real bug: accepting a proposed mapping wipes the existing VIN. Older regression suites (m1, m2-m4, phase1): 59/60 pass. The 1 failure is caused by data: a feed vehicle points to a dealer group that was deleted. Every iteration_12 fix is verified: test-drive cancel/reschedule/no-show/complete and appointment decline/cancel now cancel the reminder, a stale reminder ends 'skipped' with nothing sent, reject cancels the triggered uplift, double reject and double verify return 400, automations return 403 for reps, and the effective_date rule works. The Sales table shows '+ $150 tier adjustment'. Partner sync is honest: Le Prix du Gros and H. Grégoire show PENDING CREDENTIALS, activating without sandbox returns 400, sandbox imports labelled SAMPLE data, re-sync updates without duplicating, and sample vehicles never appear in customer matches. The French switch works, is saved on the server and comes back after logging in again (even with localStorage cleared); switching back to EN works. Login rate limit (429 on the 21st attempt), silent forgot-password limit, 2000-character chat limit, rep isolation and /api/system/health RBAC all work. UI bug: reps are not redirected away from /app/integrations or /app/health.",
+  "backend_issues": {
+    "critical": [],
+    "minor": [
+      {"endpoint": "POST /api/integrations/mappings/{id}/resolve (accept_proposed)", "issue": "The proposed entry always carries vin (None when the new proposal has no VIN), and accept copies it over the mapping. Repro: create LD102→TEST_PG-A with vin SAMPLEVIN0000LDDA2 (status active, match vin), propose LD102→TEST_PG-B without a VIN, accept it, and the stored vin is null. The seeded LD101 conflict would lose its VIN the same way. Fix: drop None values from the proposal on accept, or keep the existing vin when the proposal has none."},
+      {"endpoint": "POST /api/auth/login", "issue": "The limiter counts every attempt, not only failed ones: 20 successful logins also lock the account for 15 minutes. The IP key comes from the first X-Forwarded-For entry, which the client can spoof. Low risk."},
+      {"endpoint": "Data integrity: inventory_vehicles", "issue": "3 'feed' vehicles (for example stock A1234 Honda CR-V) point to dealer_group_id 4ef73bd1…, which no longer exists. Deleting a dealer group does not unlink its inventory. This breaks tests/test_phase1_consent_bilingual_appointments.py::test_agreement_fr_and_en (recipient.dealer_group_id is None)."},
+      {"endpoint": "GET /api/integrations open_conflicts", "issue": "The Le Don de L'Auto card shows Conflicts 0 even though the LD101 LDDA↔LPDG code mapping is in conflict. Code-mapping conflicts are only counted on the Le Prix du Gros card, which shows no stats."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "Integrations / SystemHealth route guard", "issue": "A rep who opens /app/integrations or /app/health directly sees the page shell, including the mapping form and filter, with no data. They should be redirected the way /app/automations and /app/users already are. The API correctly returns 403.", "selector": "[data-testid='integrations-page'], [data-testid='system-health-page']", "priority": "MEDIUM"},
+      {"component": "SellerChat (dev only)", "issue": "Under React.StrictMode, opening /sell/prestige-auto-toronto creates 2 conversations and 2 anonymous leads about 70ms apart. Production builds do not double-run effects, but a ref guard would stop the preview from piling up 'Unknown seller' leads.", "selector": "/sell/:slug", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "French coverage gaps (known partial)", "issues": [
+        "Sales page top table: headers VEHICLE/DEALER GROUP/AMOUNT/COMMISSION/STATUS, raw status pills 'rejected'/'verified', KPI cards (Referrals, Verified sales, Conversion, Commission total), and the 'Report a sale' button are still English. Amounts use hard-coded `$${n.toLocaleString()}` ('$30,000') instead of moneyL, and '+ $X tier adjustment' is also English.",
+        "Leads list: headers SELLER/VEHICLE/INTENT/SCORE/STATUS/APPT, the band and sort filters, and some statuses (Appointment Offered, Appointment Booked, Disqualified) are English.",
+        "Lead workspace (/app/leads/:id) is almost all English (Vehicle information, Seller, Notes, Take over, Match inventory, Back to leads).",
+        "Dashboard KPI and card titles (Hot leads, Qualification rate, Needs review, New leads) and the subtitle are English.",
+        "Customer profile: Back, 'Edit customer' and 'Conversation workspace' are English even though 'Edit customer' is in the FR dictionary but not wrapped in tr(). Role names in the rep dropdown ('Dealership Admin') are English.",
+        "Integrations cards: stat labels (Imported, Updated, ...), Activate/Deactivate, 'Sync now' (in the dictionary but not wrapped), 'Waiting on partner', the sandbox note and the status badges are English.",
+        "Test Drives status filter options are lowercase English (requested, pending confirmation, ...).",
+        "Commission status 'cancelled' is shown as 'Annulés' (plural, reused from the Test Drives KPI). It should be 'Annulée'.",
+        "fr-CA toLocaleString gives a verbose '2026-12-20 15 h 00 min 00 s'. Consider dateStyle:'medium', timeStyle:'short'."
+      ]},
+      {"screen": "System Health", "issues": ["Check details show raw ISO timestamps ('last executed 2026-11-21T06:38:28.881280+00:00') that are not localized."]},
+      {"screen": "Sales ledger filters", "issues": ["The ledger date filters still use the native browser picker (mm/dd/yyyy) instead of the shadcn Calendar."]},
+      {"screen": "Integrations mappings table", "issues": ["The source is titleized as 'Le Don De Lauto' instead of the partner name 'Le Don de L'Auto'."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_m5_m6_m7_integrations_i18n_security.py", "/app/test_reports/pytest/pytest_i13.xml", "/app/test_reports/pytest/pytest_i13_regression.xml"],
+  "action_items": [
+    "Fix resolve_mapping accept_proposed so it does not overwrite an existing VIN or internal_vehicle_id with None.",
+    "Add role redirects for reps on /app/integrations and /app/health (same pattern as /app/automations).",
+    "Unlink or flag inventory_vehicles when a dealer group is deleted, and clean up the 3 orphaned feed vehicles (dealer_group_id 4ef73bd1…). Also make the phase1 test's _seed_match pick a vehicle whose dealer group exists.",
+    "Show code-mapping conflict counts somewhere visible: on the Le Prix du Gros card, or count them in the LDDA card's Conflicts.",
+    "Optional i18n: wrap the remaining strings in tr() (Sales table and KPIs, Leads list, lead workspace, dashboard, Integrations card labels, profile header buttons), use moneyL in the Sales table, and fix the 'Annulés' wording for commission status.",
+    "Optional: count only failed logins in the per-email limiter, and guard SellerChat conversation creation against a double effect run."
+  ],
+  "critical_code_review_comments": [
+    "integrations.py resolve_mapping: `upd.update({k: v for k, v in p.items() if k not in ('at','by')})` copies None values, which causes the VIN wipe.",
+    "server.py reject_sale: find-then-update is not atomic (unlike verify), and the commission_transactions update_many is not scoped by organization_id. Rejecting an already-verified sale leaves the referral status 'paid'.",
+    "server.py complete/no-show appointment do not call cancel_reminders. This is harmless because the SkipRun re-check catches it, but it is inconsistent.",
+    "auth.py login: the rate-limit key uses x-forwarded-for[0], which the client controls.",
+    "server.py is 1753 lines and should be split further (appointments, sales, referrals into routers)."
+  ],
+  "updated_files": ["/app/backend/tests/test_m5_m6_m7_integrations_i18n_security.py"],
+  "success_rate": {"backend": "96% (23/24 new; 59/60 regression with 1 data-caused failure)", "frontend": "90%"},
+  "seed_data_creation": "None kept. All TEST_I13 leads, dealer groups, sales, transactions and code mappings, the H. Grégoire sandbox vehicles, mappings and logs, the TEST_UI_LD1 mapping, and the 2 conversations/leads created by visiting the public chat were deleted by id. H. Grégoire is back to inactive with no sandbox. The Le Don de L'Auto sandbox was re-synced (last_stats now 0 imported / 4 updated). The LD101 conflict is untouched. Admin and manager preferred_language are 'en'.",
+  "test_credentials": "From /app/memory/test_credentials.md (admin, manager, rep1). Each seeded account was logged in only a few times; the rate-limit test used throwaway test_rl_*@example.com emails.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run: cd /app/backend && pytest tests/test_m5_m6_m7_integrations_i18n_security.py -p no:xdist -o addopts=''. It caches one login per account, creates leads through the public API, and cleans up by id. test_hg_pending_then_sandbox_sync turns H. Grégoire sandbox on and then restores it to inactive. A confirmed test drive cannot be declined (400 by design); it must be cancelled. Do NOT run tests/test_cors_and_auth_regression.py repeatedly: it makes several logins to seeded accounts, which the 20-per-15-minute limit may lock. Layout forces the UI language to user.preferred_language, so switch language with the lang-fr/lang-en buttons rather than localStorage alone."
+}

@@ -1,6 +1,8 @@
 import { tr } from "@/lib/adminI18n";
 import { useEffect, useState, useCallback } from "react";
 import client from "@/lib/api";
+import { Navigate } from "react-router-dom";
+import { useAuth } from "@/context/AuthContext";
 import { PageHeader, Loading } from "@/components/Bits";
 import { toast } from "sonner";
 import { ArrowsClockwise, Flask } from "@phosphor-icons/react";
@@ -9,6 +11,7 @@ import { Pill, Table, fmtDate, inputCls } from "@/components/profile/shared";
 
 const TONE = { pending_credentials: "text-amber-400 border-amber-500/30 bg-amber-500/10", sandbox: "text-sky-400 border-sky-500/30 bg-sky-500/10",
   active: "text-emerald-400 border-emerald-500/30 bg-emerald-500/10", error: "text-red-400 border-red-500/30 bg-red-500/10", inactive: "text-zinc-400 border-border bg-secondary" };
+const NAMES = { le_don_de_lauto: "Le Don de L'Auto", h_gregoire: "H. Grégoire", le_prix_du_gros: "Le Prix du Gros" };
 const err = (e) => toast.error(e.response?.data?.detail || "Action failed");
 
 function PartnerCard({ p, groups, reload }) {
@@ -21,7 +24,7 @@ function PartnerCard({ p, groups, reload }) {
     <div className="border border-border rounded-[4px] bg-card p-5" data-testid={`integration-${p.partner_key}`}>
       <div className="flex items-start justify-between gap-2 mb-3">
         <div><div className="font-head font-bold">{p.name}</div><div className="text-[11px] font-mono-plex text-muted-foreground">{p.kind === "code_mapping" ? "inventory-code mapping" : "inventory feed / API"}</div></div>
-        <span data-testid={`integration-status-${p.partner_key}`} className={`text-[11px] font-mono-plex px-2 py-0.5 rounded-[4px] border ${TONE[p.status]}`}>{titleize(p.status).toUpperCase()}</span>
+        <span data-testid={`integration-status-${p.partner_key}`} className={`text-[11px] font-mono-plex px-2 py-0.5 rounded-[4px] border ${TONE[p.status]}`}>{titleize(p.status)}</span>
       </div>
       {p.status === "pending_credentials" && (
         <div className="text-xs text-muted-foreground mb-3">Waiting on partner: {p.required.join(" · ")}. No endpoints or credentials are assumed.</div>
@@ -29,7 +32,7 @@ function PartnerCard({ p, groups, reload }) {
       {p.kind === "inventory" && (
         <>
           <div className="grid grid-cols-4 gap-2 text-center mb-3">
-            {[["Imported", s.imported], ["Updated", s.updated], ["Sold/removed", (s.sold || 0) + (s.removed || 0)], ["Failed", s.failed], ["Unmatched", s.unmatched], ["Conflicts", p.open_conflicts], ["Live vehicles", p.vehicle_count]].map(([k, v]) => (
+            {[["Imported", s.imported], ["Updated", s.updated], ["Sold/removed", (s.sold || 0) + (s.removed || 0)], ["Failed", s.failed], ["Unmatched", s.unmatched], ["Conflicts", p.open_conflicts], ["Live vehicles", p.vehicle_count]].map(([k, v]) => [tr(k), v]).map(([k, v]) => (
               <div key={k} className="bg-secondary/50 rounded-[4px] py-2"><div className="font-head font-bold">{v ?? 0}</div><div className="text-[10px] text-muted-foreground">{k}</div></div>
             ))}
           </div>
@@ -39,9 +42,9 @@ function PartnerCard({ p, groups, reload }) {
             <select data-testid={`integration-group-${p.partner_key}`} value={p.dealer_group_id || ""} onChange={(e) => patch({ dealer_group_id: e.target.value || null })} className={`${inputCls} w-auto`}>
               <option value="">No dealer group</option>{groups.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
             </select>
-            <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" data-testid={`integration-sandbox-${p.partner_key}`} checked={!!p.sandbox} onChange={(e) => patch({ sandbox: e.target.checked, active: e.target.checked ? p.active : false })} /><Flask size={13} /> Sandbox (sample data)</label>
-            <button data-testid={`integration-toggle-${p.partner_key}`} onClick={() => patch({ active: !p.active })} className="text-xs bg-secondary hover:bg-accent px-3 py-1.5 rounded-[4px]">{p.active ? "Deactivate" : "Activate"}</button>
-            {p.active && <button data-testid={`integration-sync-${p.partner_key}`} onClick={sync} className="text-xs bg-primary text-primary-foreground px-3 py-1.5 rounded-[4px] flex items-center gap-1"><ArrowsClockwise size={12} /> Sync now</button>}
+            <label className="flex items-center gap-1.5 text-xs"><input type="checkbox" data-testid={`integration-sandbox-${p.partner_key}`} checked={!!p.sandbox} onChange={(e) => patch({ sandbox: e.target.checked, active: e.target.checked ? p.active : false })} /><Flask size={13} /> {tr("Sandbox (sample data)")}</label>
+            <button data-testid={`integration-toggle-${p.partner_key}`} onClick={() => patch({ active: !p.active })} className="text-xs bg-secondary hover:bg-accent px-3 py-1.5 rounded-[4px]">{tr(p.active ? "Deactivate" : "Activate")}</button>
+            {p.active && <button data-testid={`integration-sync-${p.partner_key}`} onClick={sync} className="text-xs bg-primary text-primary-foreground px-3 py-1.5 rounded-[4px] flex items-center gap-1"><ArrowsClockwise size={12} /> {tr("Sync now")}</button>}
           </div>
           {p.sandbox && <p className="text-[11px] text-sky-400 mt-2">Sandbox vehicles are labelled SAMPLE and are never recommended to customers.</p>}
         </>
@@ -66,6 +69,7 @@ function CodeMappingForm({ reload }) {
 }
 
 export default function Integrations() {
+  const { user } = useAuth();
   const [items, setItems] = useState(null);
   const [maps, setMaps] = useState({ vehicle_mappings: [], code_mappings: [] });
   const [groups, setGroups] = useState([]);
@@ -77,9 +81,10 @@ export default function Integrations() {
   useEffect(() => { load(); }, [load]);
   useEffect(() => { client.get("/dealer-groups").then((r) => setGroups(r.data)).catch(() => {}); }, []);
   const resolve = async (id, action) => { try { await client.post(`/integrations/mappings/${id}/resolve`, { action }); toast.success("Conflict resolved"); load(); } catch (e) { err(e); } };
+  if (user && !["platform_admin", "platform_support", "dealership_admin", "dealership_manager"].includes(user.role)) return <Navigate to="/app/dashboard" replace />;
   if (!items) return <Loading />;
   const rows = [...maps.code_mappings.map((m) => ({ ...m, kind: "LDDA ↔ LPDG", ext: `${m.ldda_code} → ${m.lpdg_code}` })),
-    ...maps.vehicle_mappings.map((m) => ({ ...m, kind: titleize(m.source), ext: `${m.external_vehicle_id} (${m.inventory_code || "—"})` }))];
+    ...maps.vehicle_mappings.map((m) => ({ ...m, kind: NAMES[m.source] || m.source, ext: `${m.external_vehicle_id} (${m.inventory_code || "—"})` }))];
   return (
     <div data-testid="integrations-page">
       <PageHeader title="Inventory Integrations" subtitle="Authorized partner feeds, external ID mapping and conflict review" />

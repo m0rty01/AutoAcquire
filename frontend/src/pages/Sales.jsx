@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import client from "@/lib/api";
 import { PageHeader, Loading, Empty } from "@/components/Bits";
+import { titleize } from "@/components/ui/badges";
+import { moneyL } from "@/lib/adminI18n";
 import { useAuth } from "@/context/AuthContext";
 import { CommissionLedger } from "@/components/sales/CommissionLedger";
 import { toast } from "sonner";
@@ -54,15 +56,15 @@ export default function Sales() {
 
   return (
     <div>
-      <PageHeader title="Sales & Commission" subtitle={`${rep.verified_sales || 0} verified`}>
-        <button data-testid="report-sale-btn" onClick={() => setReport(!report)} className="flex items-center gap-1.5 text-xs bg-primary text-primary-foreground px-3 py-2 rounded-[4px] hover:opacity-90 transition-opacity"><CurrencyDollar size={14} weight="bold" /> Report a sale</button>
+      <PageHeader title="Sales & Commission" subtitle={`${rep.verified_sales || 0} ${tr("Verified").toLowerCase()}`}>
+        <button data-testid="report-sale-btn" onClick={() => setReport(!report)} className="flex items-center gap-1.5 text-xs bg-primary text-primary-foreground px-3 py-2 rounded-[4px] hover:opacity-90 transition-opacity"><CurrencyDollar size={14} weight="bold" /> {tr("Report a sale")}</button>
       </PageHeader>
 
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
-        <Stat icon={Clock} label="Referrals" value={rep.total_referrals || 0} />
-        <Stat icon={SealCheck} label="Verified sales" value={rep.verified_sales || 0} />
-        <Stat icon={CheckCircle} label="Conversion" value={`${rep.conversion_rate || 0}%`} />
-        {finance && <Stat icon={CurrencyDollar} label="Commission total" value={`$${(rep.total_commission || 0).toLocaleString()}`} />}
+        <Stat icon={Clock} label={tr("Referrals")} value={rep.total_referrals || 0} />
+        <Stat icon={SealCheck} label={tr("Verified sales")} value={rep.verified_sales || 0} />
+        <Stat icon={CheckCircle} label={tr("Conversion")} value={`${rep.conversion_rate || 0}%`} />
+        {finance && <Stat icon={CurrencyDollar} label={tr("Commission total")} value={moneyL(rep.total_commission || 0)} />}
       </div>
 
       {report && (
@@ -73,7 +75,7 @@ export default function Sales() {
           </select>
           <input data-testid="sale-amount-input" type="number" placeholder="Sale amount ($)" value={form.sale_amount} onChange={(e) => setForm({ ...form, sale_amount: e.target.value })} className="rounded-[4px] border border-input bg-card px-2 py-1.5 text-sm outline-none focus:border-primary" />
           <input placeholder="VIN (optional)" value={form.vehicle_vin} onChange={(e) => setForm({ ...form, vehicle_vin: e.target.value })} className="rounded-[4px] border border-input bg-card px-2 py-1.5 text-sm outline-none focus:border-primary" />
-          <button data-testid="submit-sale-btn" onClick={reportSale} className="bg-primary text-primary-foreground rounded-[4px] text-sm font-semibold py-1.5 hover:opacity-90">Submit</button>
+          <button data-testid="submit-sale-btn" onClick={reportSale} className="bg-primary text-primary-foreground rounded-[4px] text-sm font-semibold py-1.5 hover:opacity-90">{tr("Submit")}</button>
         </div>
       )}
 
@@ -81,21 +83,21 @@ export default function Sales() {
         <div className="border border-border rounded-[4px] bg-card overflow-x-auto">
           <table className="w-full text-sm">
             <thead><tr className="border-b border-border text-left text-xs font-mono-plex uppercase tracking-wider text-muted-foreground">
-              <th className="p-3">Vehicle</th><th className="p-3">Dealer group</th><th className="p-3">Amount</th><th className="p-3">Commission</th><th className="p-3">Status</th><th className="p-3">Actions</th>
+              <th className="p-3">{tr("Vehicle")}</th><th className="p-3">{tr("Dealer group")}</th><th className="p-3">{tr("Amount")}</th><th className="p-3">{tr("Commission")}</th><th className="p-3">{tr("Status")}</th><th className="p-3">{tr("Actions")}</th>
             </tr></thead>
             <tbody>
               {sales.sales.map((s) => (
                 <tr key={s.id} data-testid="sale-row" className="border-b border-border last:border-0 hover:bg-secondary transition-colors">
                   <td className="p-3 font-medium">{s.vehicle_label || "—"}</td>
                   <td className="p-3">{s.dealer_group_name || "—"}</td>
-                  <td className="p-3 font-mono-plex">{s.sale_amount != null ? `$${s.sale_amount.toLocaleString()}` : "—"}</td>
-                  <td className="p-3 font-mono-plex">{s.commission ? `$${(s.commission.amount || 0).toLocaleString()} ${s.commission.status === "cancelled" ? "(void)" : ""}` : "—"}{s.commission_adjustments > 0 && <span className="block text-[11px] text-primary">+ ${s.commission_adjustments.toLocaleString()} tier adjustment</span>}</td>
-                  <td className="p-3"><span className={`text-xs font-mono-plex px-2 py-1 rounded border ${SALE_STYLE[s.status]}`}>{s.status}</span></td>
+                  <td className="p-3 font-mono-plex">{moneyL(s.sale_amount)}</td>
+                  <td className="p-3 font-mono-plex">{s.commission ? `$${(s.commission.amount || 0).toLocaleString()} ${s.commission.status === "cancelled" ? "(void)" : ""}` : "—"}{s.commission_adjustments > 0 && <span className="block text-[11px] text-primary">+ ${s.commission_adjustments.toLocaleString()} {tr("tier adjustment")}</span>}</td>
+                  <td className="p-3"><span className={`text-xs font-mono-plex px-2 py-1 rounded border ${SALE_STYLE[s.status]}`}>{titleize(s.status)}</span></td>
                   <td className="p-3">
                     {s.status === "reported" && (
                       <div className="flex gap-2">
-                        <button data-testid={`verify-${s.id}`} onClick={() => act(s.id, "verify")} className="flex items-center gap-1 text-xs bg-primary text-primary-foreground px-2.5 py-1 rounded-[4px] font-semibold hover:opacity-90"><SealCheck size={13} /> Verify</button>
-                        <button data-testid={`reject-${s.id}`} onClick={() => act(s.id, "reject")} className="flex items-center gap-1 text-xs text-destructive hover:bg-destructive/10 px-2.5 py-1 rounded-[4px]"><XCircle size={13} /> Reject</button>
+                        <button data-testid={`verify-${s.id}`} onClick={() => act(s.id, "verify")} className="flex items-center gap-1 text-xs bg-primary text-primary-foreground px-2.5 py-1 rounded-[4px] font-semibold hover:opacity-90"><SealCheck size={13} /> {tr("Verify")}</button>
+                        <button data-testid={`reject-${s.id}`} onClick={() => act(s.id, "reject")} className="flex items-center gap-1 text-xs text-destructive hover:bg-destructive/10 px-2.5 py-1 rounded-[4px]"><XCircle size={13} /> {tr("Reject")}</button>
                       </div>
                     )}
                   </td>
