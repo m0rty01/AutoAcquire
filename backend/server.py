@@ -466,6 +466,8 @@ async def public_consent(slug: str, conv_id: str, body: ConsentBody):
             lead_set["status"] = "sent_to_dealership"
             await notify(org["id"], "dealership", org["id"], "in_app", "lead_referred", {"lead_id": lead["id"]})
         await db.leads.update_one({"id": lead["id"]}, {"$set": lead_set})
+        await log_activity(org["id"], lead["id"], "consent_granted", "customer",
+                           f"Consent granted; shared with {(await db.dealer_groups.find_one({'id': dg_id}) or {}).get('name', 'dealership') if dg_id else 'dealership'}")
     else:
         await db.leads.update_one({"id": lead["id"]},
             {"$set": {"consent_status": "declined", "last_activity_at": now_iso()}})
@@ -644,8 +646,11 @@ async def correct_vehicle(lead_id: str, body: VehiclePatch, user: dict = Depends
 @api.post("/leads/{lead_id}/assign")
 async def assign_lead(lead_id: str, body: dict, user: dict = Depends(get_current_user)):
     await db.leads.update_one({"id": lead_id, "organization_id": _org(user)},
-                              {"$set": {"assigned_user_id": body.get("user_id"), "updated_at": now_iso()}})
+                              {"$set": {"assigned_user_id": body.get("user_id"), "updated_at": now_iso(), "last_activity_at": now_iso()}})
     await audit(_org(user), "user", user["id"], "lead", lead_id, "assign", None, body.get("user_id"))
+    assignee = await db.users.find_one({"id": body.get("user_id")}) if body.get("user_id") else None
+    await log_activity(_org(user), lead_id, "lead_assigned", user.get("email", user["id"]),
+                       f"Assigned to {assignee['email']}" if assignee else "Unassigned")
     return {"success": True}
 
 
@@ -705,6 +710,8 @@ async def add_note(lead_id: str, body: MessageBody, user: dict = Depends(get_cur
             "user_name": f"{user['first_name']} {user['last_name']}", "content": body.content,
             "created_at": now_iso(), "updated_at": now_iso()}
     await db.internal_notes.insert_one(dict(note))
+    await log_activity(_org(user), lead_id, "note", user.get("email", user["id"]), body.content)
+    await db.leads.update_one({"id": lead_id}, {"$set": {"last_activity_at": now_iso()}})
     return clean(note)
 
 
@@ -1001,6 +1008,7 @@ async def confirm_appointment(appt_id: str, user: dict = Depends(get_current_use
     await db.leads.update_one({"id": appt["lead_id"]}, {"$set": {"status": "appointment_confirmed"}})
     await audit(_org(user), "user", user["id"], "appointment", appt_id, "confirmed")
     await emit_event(_org(user), "appointment.confirmed", "appointment", appt_id)
+    await log_activity(_org(user), appt["lead_id"], "appointment_confirmed", user.get("email", user["id"]), "Appointment confirmed")
     seller = await db.sellers.find_one({"id": appt["seller_id"]})
     if seller and seller.get("email"):
         await notify(_org(user), "seller", seller["email"], "email", "appointment_confirmation",
@@ -1046,6 +1054,108 @@ async def noshow_appointment(appt_id: str, user: dict = Depends(get_current_user
     return {"success": True}
 
 
+# ---------------- CRM: pipeline + activity timeline ----------------
+PIPELINE_STAGES = ["new_lead", "contact_required", "contacted", "qualified", "vehicle_matched",
+                   "appointment_requested", "appointment_confirmed", "test_drive_scheduled",
+                   "test_drive_completed", "negotiation", "sale_reported", "sale_verified", "lost"]
+
+_STATUS_TO_STAGE = {
+    "new": "new_lead", "needs_review": "contact_required", "qualified": "qualified",
+    "partially_qualified": "qualified", "sent_to_dealership": "vehicle_matched",
+    "appointment_requested": "appointment_requested", "appointment_confirmed": "appointment_confirmed",
+    "appointment_declined": "contacted", "lost": "lost",
+}
+
+
+def _stage_of(lead: dict) -> str:
+    return lead.get("pipeline_stage") or _STATUS_TO_STAGE.get(lead.get("status"), "new_lead")
+
+
+async def log_activity(org_id, lead_id, activity_type, actor="system", details="", dealer_group_id=None):
+    await db.activities.insert_one({"id": new_id(), "organization_id": org_id, "lead_id": lead_id,
+        "activity_type": activity_type, "actor": actor, "details": details,
+        "dealer_group_id": dealer_group_id, "created_at": now_iso()})
+
+
+@api.get("/pipeline")
+async def get_pipeline(user: dict = Depends(get_current_user), dealer_group_id: Optional[str] = None,
+                       assigned_user_id: Optional[str] = None, search: Optional[str] = None):
+    q = {"organization_id": _org(user), "is_test": {"$ne": True}}
+    if user["role"] == "dealership_representative":
+        q["assigned_user_id"] = user["id"]
+    elif assigned_user_id:
+        q["assigned_user_id"] = assigned_user_id
+    leads = await db.leads.find(q).sort("created_at", -1).to_list(2000)
+    sellers = {s["id"]: s for s in await db.sellers.find(
+        {"id": {"$in": [l["seller_id"] for l in leads if l.get("seller_id")]}}).to_list(None)}
+    refs = {r["lead_id"]: r for r in await db.referrals.find(
+        {"lead_id": {"$in": [l["id"] for l in leads]}}).to_list(None)}
+    groups = {g["id"]: g for g in await db.dealer_groups.find({"organization_id": _org(user)}).to_list(500)}
+    now = datetime.now(timezone.utc)
+    cols = {s: [] for s in PIPELINE_STAGES}
+    for lead in leads:
+        clean(lead)
+        s = sellers.get(lead.get("seller_id"), {})
+        name = (f"{s.get('first_name') or ''} {s.get('last_name') or ''}").strip() or "Anonymous customer"
+        if search and search.lower() not in f"{name} {s.get('email','')} {s.get('phone','')}".lower():
+            continue
+        ref = refs.get(lead["id"])
+        dg = groups.get((ref or {}).get("dealer_group_id"))
+        if dealer_group_id and (not ref or ref.get("dealer_group_id") != dealer_group_id):
+            continue
+        created = lead.get("created_at", "")
+        last = lead.get("last_activity_at") or created
+        try:
+            age = (now - datetime.fromisoformat(created.replace("Z", "+00:00"))).days
+            idle = (now - datetime.fromisoformat(last.replace("Z", "+00:00"))).days
+        except Exception:
+            age, idle = 0, 0
+        stage = _stage_of(lead)
+        cols.setdefault(stage, []).append({"id": lead["id"], "customer_name": name, "email": s.get("email"),
+            "phone": s.get("phone"), "score": lead.get("score"), "status": lead.get("status"),
+            "consent_status": lead.get("consent_status"), "assigned_user_id": lead.get("assigned_user_id"),
+            "dealer_group_name": dg["name"] if dg else None, "vehicle_label": (ref or {}).get("vehicle_label"),
+            "age_days": age, "idle_days": idle, "overdue": idle >= 3 and stage not in ("sale_verified", "lost")})
+    return {"stages": PIPELINE_STAGES, "columns": cols}
+
+
+class StageBody(BaseModel):
+    stage: str
+    lost_reason: Optional[str] = None
+
+
+@api.patch("/leads/{lead_id}/stage")
+async def update_stage(lead_id: str, body: StageBody, user: dict = Depends(get_current_user)):
+    if body.stage not in PIPELINE_STAGES:
+        raise HTTPException(status_code=400, detail="Invalid stage")
+    lead = await db.leads.find_one({"id": lead_id, "organization_id": _org(user)})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if user["role"] == "dealership_representative" and lead.get("assigned_user_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Not your lead")
+    prev = _stage_of(lead)
+    upd = {"pipeline_stage": body.stage, "last_activity_at": now_iso()}
+    hist = lead.get("stage_history", []) + [{"from": prev, "to": body.stage, "by": user["id"], "at": now_iso()}]
+    upd["stage_history"] = hist
+    if body.stage == "lost" and body.lost_reason:
+        upd["lost_reason"] = body.lost_reason
+    await db.leads.update_one({"id": lead_id}, {"$set": upd})
+    await log_activity(_org(user), lead_id, "status_updated", user.get("email", user["id"]),
+                       f"{prev} → {body.stage}" + (f" ({body.lost_reason})" if body.lost_reason else ""))
+    return {"success": True, "stage": body.stage}
+
+
+@api.get("/leads/{lead_id}/activities")
+async def lead_activities(lead_id: str, user: dict = Depends(get_current_user)):
+    lead = await db.leads.find_one({"id": lead_id, "organization_id": _org(user)})
+    if not lead:
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if user["role"] == "dealership_representative" and lead.get("assigned_user_id") != user["id"]:
+        raise HTTPException(status_code=403, detail="Not your lead")
+    acts = await db.activities.find({"lead_id": lead_id}).sort("created_at", -1).to_list(500)
+    return [clean(a) for a in acts]
+
+
 # ---------------- sales verification + commissions ----------------
 SALE_STATUSES = ["reported", "verified", "rejected"]
 
@@ -1084,6 +1194,8 @@ async def report_sale(body: SaleBody, user: dict = Depends(get_current_user)):
     await db.referrals.update_one({"id": ref["id"]}, {"$set": {"status": "converted", "updated_at": now_iso()},
         "$push": {"status_history": {"status": "converted", "at": now_iso()}}})
     await audit(_org(user), "user", user["id"], "sale", sale["id"], "reported")
+    await log_activity(_org(user), ref["lead_id"], "sale_reported", user.get("email", user["id"]),
+                       f"Sale reported{(' · $' + str(body.sale_amount)) if body.sale_amount else ''}")
     return clean(sale)
 
 
@@ -1124,6 +1236,8 @@ async def verify_sale(sale_id: str, user: dict = Depends(require_roles("platform
             "created_at": now_iso(), "updated_at": now_iso()})
     await db.referrals.update_one({"id": sale["referral_id"]}, {"$set": {"status": "paid", "updated_at": now_iso()}})
     await audit(_org(user), "user", user["id"], "sale", sale_id, "verified")
+    await log_activity(_org(user), sale["lead_id"], "sale_verified", user.get("email", user["id"]),
+                       f"Sale verified · commission ${amount}")
     return {"success": True, "commission_amount": amount}
 
 

@@ -162,3 +162,12 @@ Implemented the Critical revenue backbone (PRD Stages 10–11), extending existi
 - Localization: full admin EN/FR (customer journey already bilingual).
 - Legal: Law 25 / PIPEDA consent wording sign-off.
 
+## Milestone 1 (CRM core) — Kanban pipeline + activity timeline (2026-11-21)
+Implemented on top of existing leads/referrals (no rebuild):
+- **Backend**: `PIPELINE_STAGES` (13) + status→stage mapping; `activities` collection + `log_activity()`. Endpoints: GET /api/pipeline (grouped by stage, enriched customer/dealer/age/idle/overdue, filters dealer_group/assigned_user/search, rep-scoped), PATCH /api/leads/{id}/stage (stage_history + activity; never verifies sales), GET /api/leads/{id}/activities. Wired log_activity into existing assign_lead + add_note, and into consent-grant, appointment-confirm, sale-reported, sale-verified. Existing /api/users + assign endpoints reused.
+- **Frontend**: `Pipeline.jsx` — drag-and-drop Kanban (native DnD → PATCH stage), search, lead-age/overdue badges, click card → activity drawer with add-note + chronological timeline. Nav "Pipeline", route /app/pipeline.
+- **Roles**: `dealership_representative` already enforced in list_leads + new pipeline/stage/activities endpoints (reps see only assigned leads).
+- Verified: curl (pipeline columns, stage move + history, note→timeline, 400 invalid stage, users) + UI screenshot (66 cards, drawer opens). No Phase-1 regressions.
+- **NOT yet built (Milestone 1 remainder)**: dedicated 10-tab Customer Profile page; full user-management UI (create rep/manager, password reset, deactivate) — users API exists, UI pending.
+- **Milestone 2 (Email/SMS/automation) BLOCKED**: needs Resend + Twilio credentials.
+

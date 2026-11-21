@@ -13,6 +13,7 @@ import Inventory from "@/pages/Inventory";
 import Partners from "@/pages/Partners";
 import Referrals from "@/pages/Referrals";
 import Sales from "@/pages/Sales";
+import Pipeline from "@/pages/Pipeline";
 import Appointments from "@/pages/Appointments";
 import Analytics from "@/pages/Analytics";
 import Settings from "@/pages/Settings";
@@ -38,6 +39,7 @@ function RootRouter() {
         <Route index element={<Navigate to="/app/dashboard" replace />} />
         <Route path="dashboard" element={<Dashboard />} />
         <Route path="leads" element={<Leads />} />
+        <Route path="pipeline" element={<Pipeline />} />
         <Route path="leads/:id" element={<LeadDetail />} />
         <Route path="inventory" element={<Inventory />} />
         <Route path="partners" element={<Partners />} />
