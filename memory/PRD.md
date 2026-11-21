@@ -194,3 +194,8 @@ Tested: iteration_11 (M1), iteration_12 (M2–M4), iteration_13 (M5–M7) + fixe
 - RESEND_API_KEY valid: test send via onboarding@resend.dev → `sent` with provider id; signed webhook → `delivered`; bad signature → 401.
 - Blocker: autonovaia.ca not verified in Resend (403) — real sends from support@autonovaia.ca fail (recorded as `failed`, retryable) until DNS verified.
 - RESEND_WEBHOOK_SECRET saved does not start with `whsec_` — likely not the Resend signing secret; real webhooks may be rejected until replaced.
+
+## Prod 404 fix (2026-11-21)
+- Root cause: `pip freeze` earlier today rewrote backend/requirements.txt with Emergent-only packages (emergentintegrations, litellm wheel URL) → Render build failed and kept serving the old backend (new routes 404) while the new frontend deployed.
+- Fix: restored curated requirements + httpx + reportlab; verified clean Python 3.11 venv install + `import server` (130 routes). NEVER pip-freeze into requirements.txt for this repo — add packages by hand.
+- Frontend pages (Test Drives/Communications/Automations) now handle API errors gracefully. render.yaml lists new env vars.

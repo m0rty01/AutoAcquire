@@ -23,9 +23,9 @@ export default function TestDrives() {
 
   const load = useCallback(() => {
     const params = Object.fromEntries(Object.entries(f).filter(([, v]) => v));
-    client.get("/test-drives", { params }).then((r) => setRows(r.data));
+    client.get("/test-drives", { params }).then((r) => setRows(r.data)).catch(() => { setRows([]); toast.error("Could not load test drives"); });
     const { status, ...d } = params;
-    client.get("/test-drives/dashboard", { params: d }).then((r) => setDash(r.data));
+    client.get("/test-drives/dashboard", { params: d }).then((r) => setDash(r.data)).catch(() => setDash({ total: 0, upcoming: 0, completed: 0, cancelled: 0, no_shows: 0, conversion_rate: 0, converted_to_sale: 0 }));
   }, [f]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {

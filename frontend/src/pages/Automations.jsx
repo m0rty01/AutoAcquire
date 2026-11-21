@@ -70,12 +70,12 @@ export default function Automations() {
   const [users, setUsers] = useState([]);
   const [status, setStatus] = useState("");
   const load = useCallback(() => {
-    client.get("/automations").then((r) => setRules(r.data));
-    client.get("/automations/runs", { params: { status: status || undefined } }).then((r) => setRuns(r.data));
+    client.get("/automations").then((r) => setRules(r.data)).catch(() => { setRules([]); toast.error("Could not load automations"); });
+    client.get("/automations/runs", { params: { status: status || undefined } }).then((r) => setRuns(r.data)).catch(() => setRuns([]));
   }, [status]);
   useEffect(() => { load(); }, [load]);
   useEffect(() => {
-    client.get("/communications/config").then((r) => setCfg(r.data));
+    client.get("/communications/config").then((r) => setCfg(r.data)).catch(() => {});
     client.get("/users", { params: { role: "dealership_representative", status: "active" } }).then((r) => setUsers(r.data)).catch(() => {});
   }, []);
   if (user && !canEdit && user.role !== "platform_support") return <Navigate to="/app/dashboard" replace />;

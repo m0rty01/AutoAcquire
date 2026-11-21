@@ -29,10 +29,10 @@ export default function Communications() {
   const [data, setData] = useState(null);
   const [f, setF] = useState({ channel: "", status: "", direction: "" });
   const load = useCallback(() => {
-    client.get("/communications", { params: Object.fromEntries(Object.entries(f).filter(([, v]) => v)) }).then((r) => setData(r.data));
+    client.get("/communications", { params: Object.fromEntries(Object.entries(f).filter(([, v]) => v)) }).then((r) => setData(r.data)).catch(() => { setData({ items: [], summary: {} }); toast.error("Could not load communications"); });
   }, [f]);
   useEffect(() => { load(); }, [load]);
-  useEffect(() => { client.get("/communications/config").then((r) => setCfg(r.data)); }, []);
+  useEffect(() => { client.get("/communications/config").then((r) => setCfg(r.data)).catch(() => setCfg({ email: { provider: "Resend", configured: false }, sms: { provider: "Twilio", configured: false } })); }, []);
   const retry = async (id) => {
     try { const { data } = await client.post(`/communications/${id}/retry`); toast.success(`Retried · ${titleize(data.status)}`); load(); }
     catch (e) { toast.error(e.response?.data?.detail || "Retry failed"); }

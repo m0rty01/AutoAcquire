@@ -34,6 +34,22 @@ services:
         sync: false
       - key: GEMINI_MODEL
         value: gemini-flash-latest
+      - key: PUBLIC_BASE_URL    # public backend URL used in reset links + webhooks, e.g. https://autoacquire-backend.onrender.com
+        sync: false
+      - key: EMAIL_FROM
+        value: "Support <support@autonovaia.ca>"
+      - key: RESEND_API_KEY
+        sync: false
+      - key: RESEND_WEBHOOK_SECRET   # whsec_... from Resend → Webhooks
+        sync: false
+      - key: TWILIO_ACCOUNT_SID
+        sync: false
+      - key: TWILIO_AUTH_TOKEN
+        sync: false
+      - key: TWILIO_FROM_NUMBER
+        sync: false
+      - key: WEBHOOK_CRON_SECRET     # bearer secret for /api/cron/* scheduled calls
+        generateValue: true
 
   # ---------------- Frontend: React (static) ----------------
   - type: web
