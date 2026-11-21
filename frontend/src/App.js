@@ -21,6 +21,9 @@ import PlatformAdmin from "@/pages/PlatformAdmin";
 import CustomerProfile from "@/pages/CustomerProfile";
 import UserManagement from "@/pages/UserManagement";
 import ResetPassword from "@/pages/ResetPassword";
+import Communications from "@/pages/Communications";
+import Automations from "@/pages/Automations";
+import TestDrives from "@/pages/TestDrives";
 import "@/App.css";
 
 function Protected({ children }) {
@@ -47,6 +50,9 @@ function RootRouter() {
         <Route path="leads/:id" element={<LeadDetail />} />
         <Route path="customers/:id" element={<CustomerProfile />} />
         <Route path="users" element={<UserManagement />} />
+        <Route path="communications" element={<Communications />} />
+        <Route path="automations" element={<Automations />} />
+        <Route path="test-drives" element={<TestDrives />} />
         <Route path="inventory" element={<Inventory />} />
         <Route path="partners" element={<Partners />} />
         <Route path="referrals" element={<Referrals />} />

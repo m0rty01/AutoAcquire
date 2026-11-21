@@ -1,4 +1,6 @@
+import { useState } from "react";
 import { Clock, Note } from "@phosphor-icons/react";
+import { TDActions, NewTestDrive } from "@/components/testdrives/TDParts";
 import { titleize } from "@/components/ui/badges";
 import { Card, Empty, Pill, Table, fmtDate, fmtDay, money } from "./shared";
 
@@ -34,13 +36,19 @@ export function AppointmentsTab({ p }) {
   );
 }
 
-export function TestDrivesTab({ p }) {
-  if (!p.test_drives.length) return <Empty testid="tab-panel-test-drives" label="No test drives for this customer yet." />;
+export function TestDrivesTab({ p, reload, readOnly }) {
+  const [open, setOpen] = useState(false);
+  const action = !readOnly && <button data-testid="profile-request-td-btn" onClick={() => setOpen(true)} className="text-xs bg-primary text-primary-foreground px-3 py-1.5 rounded-[4px]">Request test drive</button>;
   return (
-    <Card testid="tab-panel-test-drives" title="Test drives">
-      <Table head={["Vehicle", "Requested", "Confirmed", "Status", "Notes"]} rows={p.test_drives.map((t) => [
-        t.vehicle_label || "—", fmtDate(t.requested_at), fmtDate(t.confirmed_at), <Pill s={t.status} />, t.notes || "—",
-      ])} />
+    <Card testid="tab-panel-test-drives" title="Test drives" action={action}>
+      {!p.test_drives.length ? <Empty label="No test drives for this customer yet." /> : (
+        <Table head={["Vehicle", "Requested", "Confirmed", "Status", "Notes / feedback", ""]} rows={p.test_drives.map((t) => [
+          t.vehicle_label || "—", fmtDate(t.requested_at), fmtDate(t.confirmed_at), <Pill s={t.status} />,
+          <div className="text-xs max-w-xs">{(t.notes || []).map((n) => n.content).join(" · ")}{t.customer_feedback && <div className="text-muted-foreground">“{t.customer_feedback}”</div>}</div>,
+          readOnly ? null : <TDActions td={t} onDone={reload} />,
+        ])} />
+      )}
+      {open && <NewTestDrive leadId={p.lead.id} onClose={() => setOpen(false)} onCreated={() => { setOpen(false); reload(); }} />}
     </Card>
   );
 }

@@ -55,7 +55,7 @@ export function LinkDialog({ title, url, hours, email, onClose }) {
       <DialogContent className="dark bg-card text-foreground border-border" data-testid="link-dialog">
         <DialogHeader><DialogTitle>{title}</DialogTitle></DialogHeader>
         <p className="text-sm text-muted-foreground">
-          A one-time link for <b className="text-foreground">{email}</b> was issued (valid {hours}h). Email delivery is simulated until the email provider is connected — share this link with the user securely. It is shown only once.
+          A one-time link for <b className="text-foreground">{email}</b> was issued (valid {hours}h). The email could not be delivered (email provider not connected or failed) — share this link with the user securely. It is shown only once.
         </p>
         <div className="flex gap-2">
           <input data-testid="link-dialog-url" readOnly value={url} className={`${inputCls} font-mono-plex text-xs`} />

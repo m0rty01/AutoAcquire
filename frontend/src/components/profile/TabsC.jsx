@@ -27,15 +27,38 @@ function PermissionEditor({ p, reload, readOnly }) {
   );
 }
 
+const SENDABLE = ["follow_up", "appointment_confirmation", "appointment_reminder", "test_drive_confirmation", "test_drive_reminder"];
+
+function SendPanel({ p, reload }) {
+  const [ch, setCh] = useState("email");
+  const [tpl, setTpl] = useState("follow_up");
+  const send = async () => {
+    try {
+      const { data } = await client.post(`/leads/${p.lead.id}/communications`, { channel: ch, template: tpl });
+      (["failed", "blocked", "not_configured"].includes(data.status) ? toast.warning : toast.success)(`${titleize(data.status)}${data.error ? ` — ${data.error}` : ""}`);
+      reload();
+    } catch (e) { toast.error(e.response?.data?.detail || "Send failed"); }
+  };
+  return (
+    <div className="flex flex-wrap gap-2">
+      <select data-testid="send-channel" value={ch} onChange={(e) => setCh(e.target.value)} className={`${inputCls} w-auto`}><option value="email">Email</option><option value="sms">SMS</option></select>
+      <select data-testid="send-template" value={tpl} onChange={(e) => setTpl(e.target.value)} className={`${inputCls} w-auto`}>{SENDABLE.map((t) => <option key={t} value={t}>{titleize(t)}</option>)}</select>
+      <button data-testid="send-message-btn" onClick={send} className="text-xs bg-primary text-primary-foreground px-4 rounded-[4px] hover:opacity-90">Send</button>
+      <p className="w-full text-xs text-muted-foreground">Recipient comes from the customer record; content uses the approved bilingual template in the customer's language. Sends are blocked without the matching permission.</p>
+    </div>
+  );
+}
+
 export function CommunicationsTab({ p, reload, readOnly }) {
   const rows = [...p.communications, ...p.legacy_notifications.map((n) => ({ ...n, legacy: true }))];
   return (
     <div className="space-y-4" data-testid="tab-panel-communications">
+      {!readOnly && <Card title="Send a message"><SendPanel p={p} reload={reload} /></Card>}
       <Card title="Communication history">
         {rows.length === 0 ? <Empty label="No emails or SMS sent to this customer yet." /> : (
-          <Table head={["Channel", "Template / subject", "To", "Status", "Sent"]} rows={rows.map((c) => [
-            titleize(c.channel), titleize(c.template || c.subject), c.to || c.recipient_id,
-            <span className="inline-flex items-center gap-1"><Pill s={c.status} />{c.legacy && <span className="text-[10px] text-muted-foreground">simulated</span>}</span>,
+          <Table head={["Channel", "Dir.", "Template / message", "To / from", "Status", "Sent"]} rows={rows.map((c) => [
+            titleize(c.channel), titleize(c.direction || "outbound"), c.direction === "inbound" ? c.body : titleize(c.template || c.subject), c.direction === "inbound" ? c.from : c.to || c.recipient_id,
+            <span className="inline-flex flex-col gap-0.5"><span className="inline-flex items-center gap-1"><Pill s={c.status} />{c.legacy && <span className="text-[10px] text-muted-foreground">simulated</span>}</span>{c.error && <span className="text-[10px] text-muted-foreground">{c.error}</span>}</span>,
             fmtDate(c.sent_at || c.created_at),
           ])} />
         )}

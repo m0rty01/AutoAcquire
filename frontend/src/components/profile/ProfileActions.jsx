@@ -22,7 +22,7 @@ function AssignStage({ p, reload, canAssign, readOnly }) {
         {canAssign ? (
           <select data-testid="assign-select" value={p.lead.assigned_user_id || ""} onChange={(e) => assign(e.target.value)} className={`${inputCls} mt-1`}>
             <option value="">Unassigned</option>
-            {users.map((u) => <option key={u.id} value={u.id}>{u.first_name} {u.last_name} · {u.role_label}</option>)}
+            {users.filter((u) => ["dealership_representative", "dealership_manager"].includes(u.role) || u.id === p.lead.assigned_user_id).map((u) => <option key={u.id} value={u.id}>{u.first_name} {u.last_name} · {u.role_label}</option>)}
           </select>
         ) : <div className="text-sm mt-1">{p.overview.assigned_user?.name || "Unassigned"}</div>}
       </div>

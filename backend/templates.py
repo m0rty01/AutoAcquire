@@ -1,0 +1,86 @@
+"""Server-side bilingual message templates. Callers pass a template key + record IDs, never markup."""
+
+# category: which communication permission is required (system = staff accounts, not customers)
+TEMPLATES = {
+    "appointment_confirmation": {
+        "category": "appointment", "audience": "customer",
+        "en": {"subject": "Your appointment with {dealer} is confirmed",
+               "body": "Hi {name}, your {appointment_type} with {dealer} is confirmed for {when}. Reply to this message if you need to change it.",
+               "sms": "{dealer}: your appointment is confirmed for {when}. Reply STOP to opt out."},
+        "fr": {"subject": "Votre rendez-vous avec {dealer} est confirmé",
+               "body": "Bonjour {name}, votre rendez-vous ({appointment_type}) chez {dealer} est confirmé pour le {when}. Répondez à ce message pour le modifier.",
+               "sms": "{dealer} : votre rendez-vous est confirmé pour le {when}. Répondez STOP pour vous désabonner."},
+    },
+    "appointment_reminder": {
+        "category": "appointment", "audience": "customer",
+        "en": {"subject": "Reminder: your appointment with {dealer}",
+               "body": "Hi {name}, this is a reminder of your {appointment_type} with {dealer} on {when}.",
+               "sms": "{dealer} reminder: appointment on {when}. Reply STOP to opt out."},
+        "fr": {"subject": "Rappel : votre rendez-vous avec {dealer}",
+               "body": "Bonjour {name}, ceci est un rappel de votre rendez-vous ({appointment_type}) chez {dealer} le {when}.",
+               "sms": "Rappel {dealer} : rendez-vous le {when}. Répondez STOP pour vous désabonner."},
+    },
+    "test_drive_confirmation": {
+        "category": "appointment", "audience": "customer",
+        "en": {"subject": "Your test drive is confirmed",
+               "body": "Hi {name}, your test drive of the {vehicle} at {dealer} is confirmed for {when}. Please bring a valid driver's licence.",
+               "sms": "{dealer}: test drive of the {vehicle} confirmed for {when}. Bring your licence. Reply STOP to opt out."},
+        "fr": {"subject": "Votre essai routier est confirmé",
+               "body": "Bonjour {name}, votre essai routier du {vehicle} chez {dealer} est confirmé pour le {when}. Veuillez apporter un permis de conduire valide.",
+               "sms": "{dealer} : essai routier du {vehicle} confirmé pour le {when}. Apportez votre permis. Répondez STOP pour vous désabonner."},
+    },
+    "test_drive_reminder": {
+        "category": "appointment", "audience": "customer",
+        "en": {"subject": "Reminder: your test drive",
+               "body": "Hi {name}, a reminder of your test drive of the {vehicle} at {dealer} on {when}.",
+               "sms": "{dealer} reminder: test drive on {when}. Reply STOP to opt out."},
+        "fr": {"subject": "Rappel : votre essai routier",
+               "body": "Bonjour {name}, rappel de votre essai routier du {vehicle} chez {dealer} le {when}.",
+               "sms": "Rappel {dealer} : essai routier le {when}. Répondez STOP pour vous désabonner."},
+    },
+    "follow_up": {
+        "category": "operational", "audience": "customer",
+        "en": {"subject": "Following up on your vehicle search",
+               "body": "Hi {name}, this is {dealer} following up on your vehicle search. Reply to this message and a representative will help you with next steps.",
+               "sms": "{dealer}: following up on your vehicle search. Reply here and we'll help. Reply STOP to opt out."},
+        "fr": {"subject": "Suivi de votre recherche de véhicule",
+               "body": "Bonjour {name}, ici {dealer} pour faire le suivi de votre recherche de véhicule. Répondez à ce message et un représentant vous aidera.",
+               "sms": "{dealer} : suivi de votre recherche de véhicule. Répondez ici. Répondez STOP pour vous désabonner."},
+    },
+    "lead_referred_dealer": {
+        "category": "system", "audience": "dealership",
+        "en": {"subject": "New consented referral: {name}",
+               "body": "A customer ({name}) consented to share their details with {dealer}. Vehicle of interest: {vehicle}. Open AutoNova AI to follow up.",
+               "sms": "AutoNova AI: new consented referral {name} for {vehicle}."},
+        "fr": {"subject": "Nouvelle recommandation consentie : {name}",
+               "body": "Un client ({name}) a consenti à partager ses coordonnées avec {dealer}. Véhicule d'intérêt : {vehicle}. Ouvrez AutoNova AI pour faire le suivi.",
+               "sms": "AutoNova AI : nouvelle recommandation {name} pour {vehicle}."},
+    },
+    "rep_task_alert": {
+        "category": "system", "audience": "staff",
+        "en": {"subject": "Action needed: {name}", "body": "{details} Open AutoNova AI to follow up with {name}.",
+               "sms": "AutoNova AI: {details}"},
+        "fr": {"subject": "Action requise : {name}", "body": "{details} Ouvrez AutoNova AI pour faire le suivi avec {name}.",
+               "sms": "AutoNova AI : {details}"},
+    },
+    "user_invitation": {
+        "category": "system", "audience": "staff",
+        "en": {"subject": "You've been invited to AutoNova AI",
+               "body": "Hi {name}, an account was created for you on AutoNova AI. Use the secure link below to choose your password. The link expires in 72 hours.",
+               "link_label": "Set up my account"},
+        "fr": {"subject": "Vous êtes invité sur AutoNova AI",
+               "body": "Bonjour {name}, un compte a été créé pour vous sur AutoNova AI. Utilisez le lien sécurisé ci-dessous pour choisir votre mot de passe. Le lien expire dans 72 heures.",
+               "link_label": "Configurer mon compte"},
+    },
+    "password_reset": {
+        "category": "system", "audience": "staff",
+        "en": {"subject": "Reset your AutoNova AI password",
+               "body": "Hi {name}, a password reset was requested for your AutoNova AI account. Use the secure link below within 1 hour. If you didn't request this, you can ignore this email.",
+               "link_label": "Reset my password"},
+        "fr": {"subject": "Réinitialisez votre mot de passe AutoNova AI",
+               "body": "Bonjour {name}, une réinitialisation du mot de passe a été demandée pour votre compte AutoNova AI. Utilisez le lien sécurisé ci-dessous dans l'heure. Si vous n'êtes pas à l'origine de cette demande, ignorez ce courriel.",
+               "link_label": "Réinitialiser mon mot de passe"},
+    },
+}
+
+STAFF_SENDABLE = ["follow_up", "appointment_confirmation", "appointment_reminder", "test_drive_confirmation", "test_drive_reminder"]

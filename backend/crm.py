@@ -1,3 +1,4 @@
+import re
 from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
@@ -100,7 +101,8 @@ async def customer_profile(lead_id: str, user: dict = Depends(get_current_user))
     comms = [clean(c) for c in await db.communications.find({"lead_id": lead_id}).sort("created_at", -1).to_list(500)]
     recips = [x for x in [seller.get("email"), seller.get("phone")] if x]
     legacy = [clean(n) for n in await db.notifications.find(
-        {"recipient_type": "seller", "recipient_id": {"$in": recips}}).sort("created_at", -1).to_list(200)] if recips else []
+        {"organization_id": lead["organization_id"], "recipient_type": "seller", "recipient_id": {"$in": recips},
+         "created_at": {"$gte": lead.get("created_at", "")}}).sort("created_at", -1).to_list(200)] if recips else []
     acts = [clean(a) for a in await db.activities.find({"lead_id": lead_id}).sort("created_at", -1).to_list(1000)]
     follow_ups = [clean(f) for f in await db.follow_ups.find({"lead_id": lead_id}).sort("due_at", 1).to_list(200)]
     nxt = next((f for f in follow_ups if f["status"] == "open"), None)
@@ -139,7 +141,9 @@ async def update_customer(lead_id: str, body: CustomerPatch, user: dict = Depend
     lead = await scoped_lead(lead_id, user)
     if user["role"] == "platform_support":
         raise HTTPException(status_code=403, detail="Read-only role")
-    updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    updates = {k: v.strip() for k, v in body.model_dump().items() if v is not None and v.strip()}
+    if updates.get("email") and not re.fullmatch(r"[^@\s]+@[^@\s]+\.[^@\s]+", updates["email"]):
+        raise HTTPException(status_code=400, detail="Invalid email address")
     if updates.get("preferred_language") and updates["preferred_language"] not in ("en", "fr"):
         raise HTTPException(status_code=400, detail="Language must be en or fr")
     if not updates:

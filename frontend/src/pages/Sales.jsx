@@ -1,6 +1,8 @@
 import { useEffect, useState } from "react";
 import client from "@/lib/api";
 import { PageHeader, Loading, Empty } from "@/components/Bits";
+import { useAuth } from "@/context/AuthContext";
+import { CommissionLedger } from "@/components/sales/CommissionLedger";
 import { toast } from "sonner";
 import { CurrencyDollar, CheckCircle, Clock, SealCheck, XCircle } from "@phosphor-icons/react";
 
@@ -20,6 +22,8 @@ function Stat({ icon: Icon, label, value }) {
 }
 
 export default function Sales() {
+  const { user } = useAuth();
+  const finance = ["platform_admin", "dealership_admin", "dealership_manager", "platform_support"].includes(user?.role);
   const [sales, setSales] = useState(null);
   const [report, setReport] = useState(null);
   const [referrals, setReferrals] = useState([]);
@@ -27,7 +31,7 @@ export default function Sales() {
 
   const load = () => Promise.all([
     client.get("/sales"),
-    client.get("/commissions/report"),
+    client.get("/commissions/report").catch(() => ({ data: {} })),
     client.get("/referrals"),
   ]).then(([s, r, rf]) => { setSales({ ...s.data, report: r.data }); setReferrals(rf.data.referrals || []); });
   useEffect(() => { load(); }, []);
@@ -58,7 +62,7 @@ export default function Sales() {
         <Stat icon={Clock} label="Referrals" value={rep.total_referrals || 0} />
         <Stat icon={SealCheck} label="Verified sales" value={rep.verified_sales || 0} />
         <Stat icon={CheckCircle} label="Conversion" value={`${rep.conversion_rate || 0}%`} />
-        <Stat icon={CurrencyDollar} label="Commission total" value={`$${(rep.total_commission || 0).toLocaleString()}`} />
+        {finance && <Stat icon={CurrencyDollar} label="Commission total" value={`$${(rep.total_commission || 0).toLocaleString()}`} />}
       </div>
 
       {report && (
@@ -101,6 +105,7 @@ export default function Sales() {
           </table>
         </div>
       )}
+      {finance && <CommissionLedger />}
     </div>
   );
 }

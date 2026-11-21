@@ -3,7 +3,7 @@ import { useAuth } from "@/context/AuthContext";
 import OnboardingWizard from "@/pages/OnboardingWizard";
 import {
   SquaresFour, Users, CalendarBlank, Car, ChartBar, GearSix, SignOut, Buildings, Robot, Copy,
-  Handshake, HandArrowDown, Receipt, Kanban, UserGear,
+  Handshake, HandArrowDown, Receipt, Kanban, UserGear, SteeringWheel, ChatsTeardrop, Lightning,
 } from "@phosphor-icons/react";
 import { toast } from "sonner";
 
@@ -12,6 +12,9 @@ const NAV = [
   { to: "/app/leads", label: "Leads", icon: Users },
   { to: "/app/pipeline", label: "Pipeline", icon: Kanban },
   { to: "/app/appointments", label: "Appointments", icon: CalendarBlank },
+  { to: "/app/test-drives", label: "Test Drives", icon: SteeringWheel },
+  { to: "/app/communications", label: "Communications", icon: ChatsTeardrop },
+  { to: "/app/automations", label: "Automations", icon: Lightning, roles: ["platform_admin", "platform_support", "dealership_admin", "dealership_manager"] },
   { to: "/app/inventory", label: "Inventory", icon: Car },
   { to: "/app/partners", label: "Partners", icon: Handshake },
   { to: "/app/referrals", label: "Referrals", icon: HandArrowDown },
@@ -32,7 +35,7 @@ export default function Layout() {
     <div className="dark min-h-screen bg-background text-foreground flex">
       {showOnboarding && <OnboardingWizard />}
       {/* sidebar */}
-      <aside className="w-16 lg:w-60 shrink-0 border-r border-border flex flex-col bg-card">
+      <aside className="w-16 lg:w-60 shrink-0 border-r border-border flex flex-col bg-card h-screen sticky top-0">
         <div className="h-16 flex items-center gap-2 px-4 border-b border-border">
           <div className="w-8 h-8 rounded-[4px] bg-primary flex items-center justify-center shrink-0">
             <Robot size={20} weight="bold" className="text-white" />
@@ -41,14 +44,14 @@ export default function Layout() {
             AutoNova<span className="text-primary">AI</span>
           </span>
         </div>
-        <nav className="flex-1 py-4 space-y-1 px-2">
+        <nav className="flex-1 py-3 space-y-0.5 px-2 overflow-y-auto">
           {NAV.filter((n) => !n.roles || n.roles.includes(user?.role)).map((n) => (
             <NavLink
               key={n.to}
               to={n.to}
-              data-testid={`nav-${n.label.toLowerCase()}`}
+              data-testid={`nav-${n.label.toLowerCase().replace(/ /g, "-")}`}
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-[4px] text-sm font-medium transition-colors duration-200 ${
+                `flex items-center gap-3 px-3 py-2 rounded-[4px] text-sm font-medium transition-colors duration-200 ${
                   isActive ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                 }`
               }
@@ -60,7 +63,7 @@ export default function Layout() {
           {isPlatform && (
             <NavLink to="/app/platform" data-testid="nav-platform"
               className={({ isActive }) =>
-                `flex items-center gap-3 px-3 py-2.5 rounded-[4px] text-sm font-medium transition-colors duration-200 ${
+                `flex items-center gap-3 px-3 py-2 rounded-[4px] text-sm font-medium transition-colors duration-200 ${
                   isActive ? "bg-primary/15 text-primary" : "text-muted-foreground hover:bg-secondary hover:text-foreground"
                 }`}>
               <Buildings size={20} weight="bold" />

@@ -1,0 +1,47 @@
+{
+  "summary": "Tested Milestone 1A (Customer Profile) and 1B (User Management) on backend and frontend. Backend: 20/22 tests pass in the new pytest file test_m1_profile_user_mgmt.py. Every requested feature passes: profile sections, rep 403 and hidden financials, customer PATCH plus the 400 for a bad language, follow-up lifecycle, communication permissions with history, consent withdraw (a new record is added and the original is unchanged; a second withdraw gives 400), assign rules (rep 403, other-org or inactive assignee 400), user CRUD and role limits, invite -> set password -> login with status active, deactivate (login 403, existing token 401) and reactivate, and reset tokens being invalidated. The 2 failures are extra security probes I added: (1) a rep can PATCH any lead, including assigned_user_id, which gets around the assign permission; (2) POST /leads/{id}/notes does not check that the lead exists or belongs to the org. Frontend: every requested flow passed. Pipeline card -> profile works and the timeline button still opens the drawer. All 10 tabs render. Assign, stage, follow-up add/done, note (appears in Activities), edit customer, permissions and withdraw all work. On Users: list, search and filters, create -> setup link dialog, edit, reset link, deactivate/reactivate, the reset-password page (mismatch error, bad token error, success) and login of the new user. A manager sees only Sales Representative and no actions on admin rows. A rep has no Users nav item. Regression: appointments, sales, pipeline, leads, dashboard and /sell chat load; the phase1 suite passes 100%.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "PATCH /api/leads/{id}", "issue": "Not scoped for representatives: a rep can PATCH any lead in the org, including assigned_user_id and status (returns 200). This lets a rep self-assign and get around the POST /assign 403 and the scoped_lead rule. Use scoped_lead and block assigned_user_id for non-managers.", "priority": "HIGH"},
+      {"endpoint": "POST /api/leads/{id}/notes", "issue": "Does not look up the lead at all. Any lead_id, including one that does not exist or belongs to another org, returns 200 and writes an internal_note and an activity. A rep can also add notes to leads not assigned to them. Use scoped_lead.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/public/{slug}/conversations/{id}/messages", "issue": "server.py:317 still treats the customer as consented after a staff-recorded withdrawal, because it looks for any consent_record with status 'accepted' and the original record is kept. Result after a withdrawal: consented=true, can_refer=false. It should check lead.consent_status != 'withdrawn' or the latest record."},
+      {"endpoint": "GET /api/leads/{id}/profile (legacy_notifications)", "issue": "The notifications query matches only on recipient_id in [seller email, phone]. It has no organization_id or lead filter, so another customer's or another org's notifications sent to the same email or phone show on this profile. Seen live: an 'Appointment Confirmation' from an earlier customer appeared on a new TEST lead. Add organization_id and preferably a lead_id filter."},
+      {"endpoint": "POST /api/leads/{id}/messages", "issue": "Not scoped for reps (no assigned check). It also crashes (500) if the lead has no conversation, because conv is None."},
+      {"endpoint": "POST /api/auth/forgot-password", "issue": "Does not invalidate earlier unused tokens, unlike _issue_reset. It also only prints the token, with no notification stored."},
+      {"endpoint": "PATCH /api/leads/{id}/customer", "issue": "No email format validation, and an empty string is accepted, so it can blank out fields."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "UserManagement route", "issue": "A rep who goes straight to /app/users gets the User Management page with the team list. The API trims the fields, so every row shows 'Last login: Never' and 'Dealership: —', which is misleading. Add a role guard and redirect.", "selector": "[data-testid=user-management]", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "Customer profile - Follow-ups", "issues": ["Uses the native datetime-local picker instead of the shadcn Calendar/Popover"]},
+      {"screen": "Customer profile - Assign select", "issue_note": "", "issues": ["The assign dropdown lists every active user, including the Dealership Admin, Manager and the Super Admin (platform@). Consider limiting it to reps and managers."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_m1_profile_user_mgmt.py", "/app/test_reports/pytest/pytest_m1.xml"],
+  "action_items": [
+    "Scope PATCH /api/leads/{id} with scoped_lead and forbid reps from changing assigned_user_id",
+    "Scope POST /api/leads/{id}/notes (and /messages) with scoped_lead so it returns 404 for an unknown or other-org lead and 403 for an unassigned rep",
+    "Make the public chat 'consented' check respect a withdrawal (lead.consent_status == 'withdrawn' or the latest consent record)",
+    "Add an organization_id filter (and ideally a lead_id filter) to the legacy_notifications query in customer_profile",
+    "Add a role guard on the /app/users route for representatives",
+    "Update the outdated test tests/test_partners_inventory_referrals.py::test_auto_create_via_run_inventory_match_and_patch: referrals are now consent-gated, so this failure is expected"
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1700 lines and should be split further (leads, appointments, sales, inventory routers)",
+    "The 'consent_status' values are inconsistent: lead uses 'granted', consent_records uses 'accepted'. Withdraw checks lead.consent_status == 'withdrawn' and the records 'accepted'; this works, but it is easy to break",
+    "AssignStage loads its users asynchronously; the select briefly shows only 'Unassigned' (cosmetic)",
+    "There is a leftover user newrep_10075@test.com (created by the main agent, not this run) in the Prestige org"
+  ],
+  "updated_files": ["/app/backend/tests/test_m1_profile_user_mgmt.py"],
+  "success_rate": {"backend": "91% (20/22; both failures are extra security probes, every requested item passed)", "frontend": "100% of requested flows"},
+  "seed_data_creation": "No seed data was changed. All TEST leads and users and the TEST org were created and then deleted by id. The seed lead 63459406 was only viewed (no withdrawal). Invite/reset notification documents for the deleted random test_xxxxxxxx@test.com users may remain in the notifications collection. Note: the old partners test calls run-inventory-match on real leads, which recomputes inventory_matches.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Run the new tests with: pytest tests/test_m1_profile_user_mgmt.py (xdist is configured). They create leads through the public conversation API and insert consent/sale records directly in Mongo, then clean up by id. test_rep_patch_lead_bypass and test_notes_unknown_lead should pass once the scoping is fixed. In the UI, the assign-select options load asynchronously, so wait for more than one option. The dealer group filter exists, but no seeded users have a dealer_group_id."
+}

@@ -1,4 +1,5 @@
 import { useEffect, useState, useCallback } from "react";
+import { Navigate } from "react-router-dom";
 import client from "@/lib/api";
 import { useAuth } from "@/context/AuthContext";
 import { PageHeader, Loading } from "@/components/Bits";
@@ -17,6 +18,7 @@ export default function UserManagement() {
   const [dialog, setDialog] = useState(null);
   const [link, setLink] = useState(null);
   const isPlatform = me?.role === "platform_admin";
+  const allowed = ["platform_admin", "platform_support", "dealership_admin", "dealership_manager"].includes(me?.role);
 
   const load = useCallback(() => {
     const params = Object.fromEntries(Object.entries(f).filter(([, v]) => v));
@@ -29,11 +31,16 @@ export default function UserManagement() {
     if (isPlatform) client.get("/platform/organizations").then((r) => setOrgs(r.data)).catch(() => {});
   }, [isPlatform]);
 
+  if (me && !allowed) return <Navigate to="/app/dashboard" replace />;
+
   const act = async (u, action) => {
     if (action === "deactivate" && !window.confirm(`Deactivate ${u.email}? They will be signed out and unable to log in.`)) return;
     try {
       const { data } = await client.post(`/users/${u.id}/${action}`);
-      if (action === "password-reset") setLink({ title: "Password reset link", url: data.reset_url, hours: data.expires_in_hours, email: u.email });
+      if (action === "password-reset") {
+        if (data.reset_url) setLink({ title: "Password reset link", url: data.reset_url, hours: data.expires_in_hours, email: u.email });
+        else toast.success(`Reset email sent to ${u.email}`);
+      }
       else toast.success(action === "deactivate" ? "Account deactivated" : "Account reactivated");
       load();
     } catch (e) { toast.error(e.response?.data?.detail || "Action failed"); }
@@ -85,7 +92,7 @@ export default function UserManagement() {
         </div>
       )}
       {dialog && <UserDialog {...dialog} meta={meta} groups={groups} orgs={orgs} isPlatform={isPlatform}
-        onClose={() => setDialog(null)} onSaved={(res) => { setDialog(null); load(); if (res?.setup_url) setLink({ title: "Account setup link", url: res.setup_url, hours: 72, email: res.user.email }); }} />}
+        onClose={() => setDialog(null)} onSaved={(res) => { setDialog(null); load(); if (res && !res.setup_url) toast.success(`Invitation emailed to ${res.user.email}`); if (res?.setup_url) setLink({ title: "Account setup link", url: res.setup_url, hours: 72, email: res.user.email }); }} />}
       {link && <LinkDialog {...link} onClose={() => setLink(null)} />}
     </div>
   );

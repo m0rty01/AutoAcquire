@@ -4,7 +4,8 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional
 from fastapi import APIRouter, HTTPException, Depends
 from pydantic import BaseModel, EmailStr
-from db import db, new_id, now_iso, clean, audit, notify
+from db import db, new_id, now_iso, clean, audit
+from comms import send_communication
 from auth import get_current_user
 
 users_router = APIRouter(prefix="/api", tags=["users"])
@@ -66,9 +67,11 @@ async def _issue_reset(u: dict, actor: dict, kind: str) -> str:
         "kind": kind, "issued_by": actor["id"],
         "expires_at": (datetime.now(timezone.utc) + timedelta(hours=hours)).isoformat(), "created_at": now_iso()})
     url = f"{os.environ.get('PUBLIC_BASE_URL', '').rstrip('/')}/reset-password?token={token}"
-    await notify(u["organization_id"], "user", u["email"], "email",
-                 "user_invitation" if kind == "invite" else "password_reset", {"reset_url": url})
-    return url
+    comm = await send_communication(org_id=u["organization_id"], channel="email",
+        template="user_invitation" if kind == "invite" else "password_reset", to=u["email"],
+        vars={"name": u.get("first_name") or ""}, link=url, recipient_type="staff", triggered_by=actor.get("email", "system"))
+    # The link is only revealed to the admin when the email could not be delivered by the provider
+    return url if comm["status"] in ("not_configured", "failed", "blocked") else None, comm["status"]
 
 
 @users_router.get("/users/roles")
@@ -140,8 +143,8 @@ async def _create(body: CreateUserBody, actor: dict) -> dict:
          "created_at": now_iso(), "updated_at": now_iso()}
     await db.users.insert_one(dict(u))
     await audit(org_id, "user", actor["id"], "user", u["id"], "created", None, {"role": body.role})
-    url = await _issue_reset(u, actor, "invite")
-    return {"user": _out(u), "setup_url": url}
+    url, email_status = await _issue_reset(u, actor, "invite")
+    return {"user": _out(u), "setup_url": url, "email_status": email_status}
 
 
 @users_router.post("/users")
@@ -225,6 +228,6 @@ async def admin_password_reset(user_id: str, user: dict = Depends(get_current_us
         raise HTTPException(status_code=400, detail="Reactivate the account before resetting its password")
     if t.get("auth_provider") == "google" and not t.get("password_hash"):
         raise HTTPException(status_code=400, detail="This user signs in with Google")
-    url = await _issue_reset(t, user, "invite" if t.get("status") == "invited" else "reset")
+    url, email_status = await _issue_reset(t, user, "invite" if t.get("status") == "invited" else "reset")
     await audit(t["organization_id"], "user", user["id"], "user", user_id, "password_reset_initiated")
-    return {"success": True, "reset_url": url, "expires_in_hours": 72 if t.get("status") == "invited" else 1}
+    return {"success": True, "reset_url": url, "email_status": email_status, "expires_in_hours": 72 if t.get("status") == "invited" else 1}

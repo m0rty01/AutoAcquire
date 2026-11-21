@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { AgreementDialog } from "@/components/sales/AgreementDialog";
 import client from "@/lib/api";
 import { PageHeader, Loading, Empty } from "@/components/Bits";
 import { toast } from "sonner";
@@ -131,13 +132,13 @@ function GroupCard({ group, onChanged }) {
   const loadSources = () => client.get("/inventory-sources", { params: { dealer_group_id: group.id } }).then((r) => setSources(r.data));
   useEffect(() => { if (expanded && sources === null) loadSources(); }, [expanded]);
 
+  const [agreement, setAgreement] = useState(false);
   const saveEdit = async () => {
     try {
       await client.patch(`/dealer-groups/${group.id}`, {
         name: form.name, website: form.website, referral_amount: Number(form.referral_amount) || 0,
         referral_program: form.referral_program, status: form.status,
-        commission_model: form.commission_model || "fixed", commission_rate: Number(form.commission_rate) || 0,
-        commission_currency: form.commission_currency || "CAD",
+        notification_email: form.notification_email || null,
       });
       toast.success("Updated"); setEditing(false); onChanged();
     } catch { toast.error("Update failed"); }
@@ -168,12 +169,14 @@ function GroupCard({ group, onChanged }) {
           </div>
         </div>
         <div className="flex items-center gap-1 shrink-0">
+          <button data-testid="agreement-btn" onClick={() => setAgreement(true)} className="text-xs text-primary hover:underline px-1.5">Commission{group.commission_model === "volume" ? " · tiers" : ""}</button>
           <button data-testid="edit-group-btn" onClick={() => { setForm(group); setEditing(!editing); }} className="text-muted-foreground hover:text-foreground p-1.5"><PencilSimple size={15} /></button>
           {!group.is_default && <button data-testid="delete-group-btn" onClick={del} className="text-muted-foreground hover:text-red-400 p-1.5"><Trash size={15} /></button>}
           <button data-testid="expand-group-btn" onClick={() => setExpanded(!expanded)} className="text-muted-foreground hover:text-foreground p-1.5">{expanded ? <CaretDown size={16} /> : <CaretRight size={16} />}</button>
         </div>
       </div>
 
+      {agreement && <AgreementDialog group={group} onClose={() => setAgreement(false)} onSaved={() => { setAgreement(false); onChanged(); }} />}
       {editing && (
         <div className="px-4 pb-4 grid grid-cols-2 gap-2 border-t border-border pt-3">
           <input placeholder="Name" value={form.name || ""} onChange={(e) => setForm({ ...form, name: e.target.value })} className="rounded-[4px] border border-input bg-background px-2 py-1.5 text-sm outline-none focus:border-primary" />
@@ -181,8 +184,7 @@ function GroupCard({ group, onChanged }) {
           <input type="number" placeholder="Referral amount ($)" value={form.referral_amount ?? ""} onChange={(e) => setForm({ ...form, referral_amount: e.target.value })} className="rounded-[4px] border border-input bg-background px-2 py-1.5 text-sm outline-none focus:border-primary" />
           <input placeholder="Referral program (e.g. Mon Coéquipier)" value={form.referral_program || ""} onChange={(e) => setForm({ ...form, referral_program: e.target.value })} className="rounded-[4px] border border-input bg-background px-2 py-1.5 text-sm outline-none focus:border-primary" />
           <select value={form.status || "active"} onChange={(e) => setForm({ ...form, status: e.target.value })} className="rounded-[4px] border border-input bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"><option value="active">active</option><option value="paused">paused</option></select>
-          <select data-testid="commission-model-select" value={form.commission_model || "fixed"} onChange={(e) => setForm({ ...form, commission_model: e.target.value })} className="rounded-[4px] border border-input bg-background px-2 py-1.5 text-sm outline-none focus:border-primary"><option value="fixed">Fixed $ / sale</option><option value="percent">% of sale</option><option value="volume">Volume-based</option></select>
-          <input type="number" placeholder={form.commission_model === "percent" ? "Rate (%)" : "Amount ($/sale)"} value={form.commission_rate ?? ""} onChange={(e) => setForm({ ...form, commission_rate: e.target.value })} className="rounded-[4px] border border-input bg-background px-2 py-1.5 text-sm outline-none focus:border-primary" />
+          <input data-testid="group-notification-email" type="email" placeholder="Referral notification email" value={form.notification_email || ""} onChange={(e) => setForm({ ...form, notification_email: e.target.value })} className="rounded-[4px] border border-input bg-background px-2 py-1.5 text-sm outline-none focus:border-primary" />
           <button data-testid="save-group-btn" onClick={saveEdit} className="bg-primary text-primary-foreground rounded-[4px] text-sm font-semibold hover:opacity-90">Save</button>
         </div>
       )}

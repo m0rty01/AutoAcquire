@@ -6,3 +6,9 @@ crons:
     method: POST
     # Cron endpoints must ack 2xx immediately; enqueue/background the actual work.
     enabled: true
+  - name: run-automations
+    description: "Executes due follow-up automations, reminders and uncontacted/inactive lead checks every 15 minutes"
+    cron: "*/15 * * * *"
+    endpoint: "{{BASE_URL}}/api/cron/automations"
+    method: POST
+    enabled: true

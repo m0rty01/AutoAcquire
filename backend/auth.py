@@ -160,13 +160,18 @@ async def forgot_password(body: ForgotBody):
     email = body.email.lower()
     user = await db.users.find_one({"email": email})
     if user and user.get("status") != "inactive":
+        await db.password_reset_tokens.update_many({"user_id": user["id"], "used": False}, {"$set": {"used": True}})
         token = secrets.token_urlsafe(32)
         await db.password_reset_tokens.insert_one({
             "id": new_id(), "user_id": user["id"], "token": token, "used": False,
             "expires_at": (datetime.now(timezone.utc) + timedelta(hours=1)).isoformat(),
             "created_at": now_iso(),
         })
-        print(f"[PASSWORD RESET] {email} token={token}")
+        from comms import send_communication
+        url = f"{os.environ.get('PUBLIC_BASE_URL', '').rstrip('/')}/reset-password?token={token}"
+        await send_communication(org_id=user["organization_id"], channel="email", template="password_reset", to=email,
+                                 vars={"name": user.get("first_name") or ""}, link=url, recipient_type="staff",
+                                 triggered_by="self_service")
     return {"success": True, "message": "If the email exists, a reset link was sent."}
 
 

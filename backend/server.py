@@ -17,6 +17,10 @@ from connectors import run_source_sync
 from seed import seed_demo
 from crm import crm_router, PIPELINE_STAGES, log_activity, scoped_lead, stage_of as _stage_of
 from user_admin import users_router
+from comms import comms_router
+from automation import automation_router, fire
+from testdrives import td_router
+from commissions import commission_router, compute_commission
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("autoacquire")
@@ -314,7 +318,8 @@ async def post_public_message(slug: str, conv_id: str, body: MessageBody):
         matches = await _run_match(lead)
 
     lang = conv.get("language", "en")
-    consented = await db.consent_records.find_one({"lead_id": lead["id"], "status": "accepted"})
+    latest_consent = await db.consent_records.find_one({"lead_id": lead["id"]}, sort=[("created_at", -1)])
+    consented = latest_consent if (latest_consent or {}).get("status") == "accepted" else None
     recommendations = []
     for m in matches[:3]:
         v = m["inventory_vehicle"]
@@ -466,10 +471,11 @@ async def public_consent(slug: str, conv_id: str, body: ConsentBody):
             if v:
                 await _upsert_referral(lead, clean(v), status="sent")
             lead_set["status"] = "sent_to_dealership"
-            await notify(org["id"], "dealership", org["id"], "in_app", "lead_referred", {"lead_id": lead["id"]})
         await db.leads.update_one({"id": lead["id"]}, {"$set": lead_set})
         await log_activity(org["id"], lead["id"], "consent_granted", "customer",
                            f"Consent granted; shared with {(await db.dealer_groups.find_one({'id': dg_id}) or {}).get('name', 'dealership') if dg_id else 'dealership'}")
+        if top:
+            await fire(org["id"], "referral_consented", lead["id"], record["id"])
     else:
         await db.leads.update_one({"id": lead["id"]},
             {"$set": {"consent_status": "declined", "last_activity_at": now_iso()}})
@@ -611,10 +617,14 @@ class LeadPatch(BaseModel):
 
 @api.patch("/leads/{lead_id}")
 async def patch_lead(lead_id: str, body: LeadPatch, user: dict = Depends(get_current_user)):
-    lead = await db.leads.find_one({"id": lead_id, "organization_id": _org(user)})
-    if not lead:
-        raise HTTPException(status_code=404, detail="Lead not found")
+    lead = await scoped_lead(lead_id, user)
     updates = {k: v for k, v in body.model_dump().items() if v is not None}
+    if "assigned_user_id" in updates:
+        if user["role"] not in ("platform_admin", "dealership_admin", "dealership_manager"):
+            raise HTTPException(status_code=403, detail="Only managers can assign leads")
+        if not await db.users.find_one({"id": updates["assigned_user_id"], "organization_id": _org(user),
+                                        "status": {"$ne": "inactive"}}):
+            raise HTTPException(status_code=400, detail="Assignee must be an active user of this dealership")
     if updates:
         updates["updated_at"] = now_iso()
         await db.leads.update_one({"id": lead_id}, {"$set": updates})
@@ -699,10 +709,10 @@ async def resume_ai(lead_id: str, user: dict = Depends(get_current_user)):
 
 @api.post("/leads/{lead_id}/messages")
 async def send_manual_message(lead_id: str, body: MessageBody, user: dict = Depends(get_current_user)):
-    lead = await db.leads.find_one({"id": lead_id, "organization_id": _org(user)})
-    if not lead:
-        raise HTTPException(status_code=404, detail="Lead not found")
+    await scoped_lead(lead_id, user)
     conv = await db.conversations.find_one({"lead_id": lead_id})
+    if not conv:
+        raise HTTPException(status_code=400, detail="This lead has no conversation")
     await db.messages.insert_one({"id": new_id(), "organization_id": _org(user), "conversation_id": conv["id"],
         "sender_type": "human_agent", "sender_user_id": user["id"], "content": body.content,
         "delivery_status": "delivered", "created_at": now_iso()})
@@ -712,6 +722,9 @@ async def send_manual_message(lead_id: str, body: MessageBody, user: dict = Depe
 
 @api.post("/leads/{lead_id}/notes")
 async def add_note(lead_id: str, body: MessageBody, user: dict = Depends(get_current_user)):
+    await scoped_lead(lead_id, user)
+    if not body.content.strip():
+        raise HTTPException(status_code=400, detail="Note cannot be empty")
     note = {"id": new_id(), "organization_id": _org(user), "lead_id": lead_id, "user_id": user["id"],
             "user_name": f"{user['first_name']} {user['last_name']}", "content": body.content,
             "created_at": now_iso(), "updated_at": now_iso()}
@@ -1015,10 +1028,8 @@ async def confirm_appointment(appt_id: str, user: dict = Depends(get_current_use
     await audit(_org(user), "user", user["id"], "appointment", appt_id, "confirmed")
     await emit_event(_org(user), "appointment.confirmed", "appointment", appt_id)
     await log_activity(_org(user), appt["lead_id"], "appointment_confirmed", user.get("email", user["id"]), "Appointment confirmed")
-    seller = await db.sellers.find_one({"id": appt["seller_id"]})
-    if seller and seller.get("email"):
-        await notify(_org(user), "seller", seller["email"], "email", "appointment_confirmation",
-                     {"start_time": appt["start_time"]})
+    await fire(_org(user), "appointment_confirmed", appt["lead_id"], appt_id,
+               {"start_time": appt["start_time"], "appointment_type": (appt.get("appointment_type") or "").replace("_", " ")})
     return {"success": True}
 
 
@@ -1144,16 +1155,6 @@ async def lead_activities(lead_id: str, user: dict = Depends(get_current_user)):
 SALE_STATUSES = ["reported", "verified", "rejected"]
 
 
-def _calc_commission(dg: dict, sale_amount):
-    model = (dg or {}).get("commission_model", "fixed")
-    rate = (dg or {}).get("commission_rate", 0) or 0
-    if model == "percent" and sale_amount:
-        return round(float(sale_amount) * float(rate) / 100.0, 2), f"{rate}% of {sale_amount}"
-    # fixed and volume (volume tiers are a future extension) fall back to a per-sale amount
-    amount = rate or (dg or {}).get("referral_amount", 0) or 0
-    return float(amount), f"flat {amount}"
-
-
 class SaleBody(BaseModel):
     referral_id: str
     sale_amount: Optional[float] = None
@@ -1195,8 +1196,12 @@ async def list_sales(user: dict = Depends(get_current_user), status: Optional[st
         clean(s)
         g = groups.get(s.get("dealer_group_id"))
         s["dealer_group_name"] = g["name"] if g else None
-        comm = await db.commission_transactions.find_one({"sale_id": s["id"]})
-        s["commission"] = clean(comm) if comm else None
+        if user["role"] in ("dealership_representative",):
+            s.pop("sale_amount", None)
+            s["commission"] = None
+        else:
+            comm = await db.commission_transactions.find_one({"sale_id": s["id"], "type": {"$ne": "adjustment"}})
+            s["commission"] = clean(comm) if comm else None
         out.append(s)
     return {"sales": out, "statuses": SALE_STATUSES}
 
@@ -1211,13 +1216,17 @@ async def verify_sale(sale_id: str, user: dict = Depends(require_roles("platform
     await db.sales.update_one({"id": sale_id}, {"$set": {"status": "verified", "verified_by": user["id"],
         "verified_at": now_iso(), "updated_at": now_iso()}})
     dg = await db.dealer_groups.find_one({"id": sale.get("dealer_group_id")}) if sale.get("dealer_group_id") else None
-    amount, basis = _calc_commission(dg, sale.get("sale_amount"))
+    amount, basis, adjustments = await compute_commission(clean(dg) if dg else None, clean(sale))
     if not await db.commission_transactions.find_one({"sale_id": sale_id, "status": {"$ne": "cancelled"}}):  # idempotent
-        await db.commission_transactions.insert_one({"id": new_id(), "organization_id": _org(user),
-            "sale_id": sale_id, "referral_id": sale["referral_id"], "dealer_group_id": sale.get("dealer_group_id"),
-            "amount": amount, "currency": (dg or {}).get("commission_currency", "CAD"),
-            "model": (dg or {}).get("commission_model", "fixed"), "basis": basis, "status": "payable",
-            "created_at": now_iso(), "updated_at": now_iso()})
+        common = {"organization_id": _org(user), "dealer_group_id": sale.get("dealer_group_id"),
+                  "currency": (dg or {}).get("commission_currency", "CAD"), "model": (dg or {}).get("commission_model", "fixed"),
+                  "method": (dg or {}).get("volume_method"), "agreement_version": (dg or {}).get("agreement_version", 0),
+                  "status": "payable", "created_at": now_iso(), "updated_at": now_iso()}
+        await db.commission_transactions.insert_one({"id": new_id(), **common, "type": "sale", "sale_id": sale_id,
+            "referral_id": sale["referral_id"], "amount": amount, "basis": basis})
+        for adj in adjustments:
+            await db.commission_transactions.insert_one({"id": new_id(), **common, "type": "adjustment",
+                "triggered_by_sale_id": sale_id, **adj})
     await db.referrals.update_one({"id": sale["referral_id"]}, {"$set": {"status": "paid", "updated_at": now_iso()}})
     await audit(_org(user), "user", user["id"], "sale", sale_id, "verified")
     await log_activity(_org(user), sale["lead_id"], "sale_verified", user.get("email", user["id"]),
@@ -1238,7 +1247,7 @@ async def reject_sale(sale_id: str, user: dict = Depends(require_roles("platform
 
 
 @api.get("/commissions/report")
-async def commissions_report(user: dict = Depends(get_current_user)):
+async def commissions_report(user: dict = Depends(require_roles("platform_admin", "dealership_admin", "dealership_manager", "platform_support"))):
     org = _org(user)
     referrals = await db.referrals.count_documents({"organization_id": org})
     verified = await db.sales.count_documents({"organization_id": org, "status": "verified"})
@@ -1433,6 +1442,7 @@ class DealerGroupBody(BaseModel):
     commission_currency: str = "CAD"
     locations: list = []
     status: str = "active"
+    notification_email: Optional[str] = None
 
 
 @api.get("/dealer-groups")
@@ -1459,7 +1469,9 @@ async def create_dealer_group(body: DealerGroupBody, user: dict = Depends(requir
 
 @api.patch("/dealer-groups/{dg_id}")
 async def update_dealer_group(dg_id: str, body: dict, user: dict = Depends(require_roles("dealership_admin"))):
-    body.pop("id", None); body.pop("is_default", None)
+    for k in ("id", "is_default", "organization_id", "commission_model", "commission_rate", "commission_currency",
+              "volume_tiers", "volume_period", "volume_method", "effective_date", "agreement_version"):
+        body.pop(k, None)  # commission terms change only via the versioned agreement endpoint
     body["updated_at"] = now_iso()
     await db.dealer_groups.update_one({"id": dg_id, "organization_id": _org(user)}, {"$set": body})
     return clean(await db.dealer_groups.find_one({"id": dg_id}))
@@ -1616,6 +1628,10 @@ app.include_router(auth_router)
 app.include_router(api)
 app.include_router(crm_router)
 app.include_router(users_router)
+app.include_router(comms_router)
+app.include_router(automation_router)
+app.include_router(td_router)
+app.include_router(commission_router)
 
 _cors_env = [o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()]
 app.add_middleware(
@@ -1640,6 +1656,11 @@ async def startup():
     await db.inventory_vehicles.create_index([("organization_id", 1), ("dealer_group_id", 1)])
     await db.inventory_sources.create_index("feed_token")
     await db.referrals.create_index([("organization_id", 1), ("status", 1)])
+    await db.automation_runs.create_index("idempotency_key", unique=True)
+    await db.automation_runs.create_index([("status", 1), ("run_at", 1)])
+    await db.communications.create_index("provider_message_id")
+    await db.communications.create_index("lead_id")
+    await db.webhook_events.create_index([("provider", 1), ("event_id", 1)], unique=True)
     await seed_demo()
     await _migrate_dealer_groups()
     await _seed_consent_agreements()
