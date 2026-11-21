@@ -228,7 +228,24 @@ async def get_public_conversation(slug: str, conv_id: str):
     conv = await db.conversations.find_one({"id": conv_id})
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
-    return {"conversation": clean(conv), "messages": await _conv_messages(conv_id)}
+    lead_id = conv["lead_id"]
+    consent = await db.consent_records.find_one({"lead_id": lead_id}, sort=[("created_at", -1)])
+    appt = await db.appointments.find_one({"lead_id": lead_id,
+        "status": {"$in": ["requested", "proposed", "confirmed"]}}, sort=[("created_at", -1)])
+    recs = []
+    for m in await db.inventory_matches.find({"lead_id": lead_id}).sort("ranking", 1).to_list(3):
+        v = await db.inventory_vehicles.find_one({"id": m["inventory_vehicle_id"]})
+        if not v:
+            continue
+        dg = await db.dealer_groups.find_one({"id": v.get("dealer_group_id")}) if v.get("dealer_group_id") else None
+        recs.append({"id": v["id"], "year": v.get("year"), "make": v.get("make"), "model": v.get("model"),
+            "trim": v.get("trim"), "price": v.get("price"), "mileage": v.get("mileage"),
+            "fuel_type": v.get("fuel_type"), "transmission": v.get("transmission"),
+            "image_url": v.get("image_url"), "dealer_group_name": dg["name"] if dg else None,
+            "match_reasons": m.get("match_reasons", [])})
+    return {"conversation": clean(conv), "messages": await _conv_messages(conv_id),
+            "recommendations": recs, "consent_status": (consent or {}).get("status"),
+            "booked_appointment": clean(appt) if appt else None}
 
 
 @api.post("/public/{slug}/conversations/{conv_id}/messages")
@@ -396,7 +413,7 @@ async def _active_agreement(language: str):
 @api.get("/public/{slug}/conversations/{conv_id}/consent-agreement")
 async def public_consent_agreement(slug: str, conv_id: str, language: str = "en"):
     org = await _get_dealer_by_slug(slug)
-    conv = await db.conversations.find_one({"id": conv_id})
+    conv = await db.conversations.find_one({"id": conv_id, "organization_id": org["id"]})
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
     language = language if language in ("en", "fr") else "en"
@@ -419,7 +436,7 @@ class ConsentBody(BaseModel):
 @api.post("/public/{slug}/conversations/{conv_id}/consent")
 async def public_consent(slug: str, conv_id: str, body: ConsentBody):
     org = await _get_dealer_by_slug(slug)
-    conv = await db.conversations.find_one({"id": conv_id})
+    conv = await db.conversations.find_one({"id": conv_id, "organization_id": org["id"]})
     if not conv:
         raise HTTPException(status_code=404, detail="Conversation not found")
     lead = await db.leads.find_one({"id": conv["lead_id"]})
@@ -427,6 +444,9 @@ async def public_consent(slug: str, conv_id: str, body: ConsentBody):
     agreement = await _active_agreement(language)
     top = await db.inventory_matches.find_one({"lead_id": lead["id"]}, sort=[("ranking", 1)])
     dg_id = body.recipient_dealer_group_id or (top.get("dealer_group_id") if top else None)
+    # Only allow a recipient dealer group that belongs to this org
+    if dg_id and not await db.dealer_groups.find_one({"id": dg_id, "organization_id": org["id"]}):
+        dg_id = top.get("dealer_group_id") if top else None
     record = {"id": new_id(), "organization_id": org["id"], "lead_id": lead["id"], "seller_id": lead["seller_id"],
         "agreement_version_id": (agreement or {}).get("id"), "agreement_version": (agreement or {}).get("version"),
         "language": language, "recipient_dealer_group_ids": [dg_id] if dg_id else [],
@@ -437,14 +457,16 @@ async def public_consent(slug: str, conv_id: str, body: ConsentBody):
     await db.consent_records.insert_one(dict(record))
     await audit(org["id"], "seller", lead["seller_id"], "consent", record["id"],
                 "accepted" if body.accepted else "declined")
-    if body.accepted and top:
-        v = await db.inventory_vehicles.find_one({"id": top["inventory_vehicle_id"]})
-        if v:
-            await _upsert_referral(lead, clean(v), status="sent")
-        await db.leads.update_one({"id": lead["id"]},
-            {"$set": {"status": "sent_to_dealership", "consent_status": "granted", "last_activity_at": now_iso()}})
-        await notify(org["id"], "dealership", org["id"], "in_app", "lead_referred", {"lead_id": lead["id"]})
-    elif not body.accepted:
+    if body.accepted:
+        lead_set = {"consent_status": "granted", "last_activity_at": now_iso()}
+        if top:
+            v = await db.inventory_vehicles.find_one({"id": top["inventory_vehicle_id"]})
+            if v:
+                await _upsert_referral(lead, clean(v), status="sent")
+            lead_set["status"] = "sent_to_dealership"
+            await notify(org["id"], "dealership", org["id"], "in_app", "lead_referred", {"lead_id": lead["id"]})
+        await db.leads.update_one({"id": lead["id"]}, {"$set": lead_set})
+    else:
         await db.leads.update_one({"id": lead["id"]},
             {"$set": {"consent_status": "declined", "last_activity_at": now_iso()}})
     return {"status": record["status"], "shared_with": dg_id}
@@ -474,7 +496,7 @@ async def public_book(slug: str, conv_id: str, body: BookBody):
         raise HTTPException(status_code=404, detail="Conversation not found")
     lead = await db.leads.find_one({"id": conv["lead_id"]})
     existing = await db.appointments.find_one({"organization_id": org["id"], "start_time": body.start_time,
-        "status": {"$in": ["proposed", "confirmed"]}})
+        "status": {"$in": ["requested", "proposed", "confirmed"]}})
     if existing:
         raise HTTPException(status_code=409, detail="That time was just taken. Please pick another slot.")
     loc = await db.dealership_locations.find_one({"organization_id": org["id"]})
@@ -972,6 +994,8 @@ async def confirm_appointment(appt_id: str, user: dict = Depends(get_current_use
     appt = await db.appointments.find_one({"id": appt_id, "organization_id": _org(user)})
     if not appt:
         raise HTTPException(status_code=404, detail="Appointment not found")
+    if appt["status"] not in ("requested", "proposed"):
+        raise HTTPException(status_code=400, detail=f"Cannot confirm an appointment that is {appt['status']}")
     await db.appointments.update_one({"id": appt_id}, {"$set": {"status": "confirmed",
         "confirmation_sent_at": now_iso(), "confirmed_by": user["id"], "updated_at": now_iso()}})
     await db.leads.update_one({"id": appt["lead_id"]}, {"$set": {"status": "appointment_confirmed"}})
@@ -990,8 +1014,12 @@ class DeclineBody(BaseModel):
 
 @api.post("/appointments/{appt_id}/decline")
 async def decline_appointment(appt_id: str, body: DeclineBody = DeclineBody(), user: dict = Depends(get_current_user)):
-    await db.appointments.update_one({"id": appt_id, "organization_id": _org(user)},
+    appt = await db.appointments.find_one({"id": appt_id, "organization_id": _org(user)})
+    if not appt:
+        raise HTTPException(status_code=404, detail="Appointment not found")
+    await db.appointments.update_one({"id": appt_id},
         {"$set": {"status": "declined", "decline_reason": body.reason, "updated_at": now_iso()}})
+    await db.leads.update_one({"id": appt["lead_id"]}, {"$set": {"status": "appointment_declined"}})
     await audit(_org(user), "user", user["id"], "appointment", appt_id, "declined")
     return {"success": True}
 

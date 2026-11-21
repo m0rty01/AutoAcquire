@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from "react";
 import { useParams } from "react-router-dom";
 import client from "@/lib/api";
 import { t } from "@/i18n";
+import { toast } from "sonner";
 import {
   PaperPlaneRight, CheckCircle, CalendarCheck, ShieldCheck, Calculator, CarProfile, X, Clock,
 } from "@phosphor-icons/react";
@@ -10,9 +11,9 @@ const AI_AVATAR = "https://images.unsplash.com/photo-1535378620166-273708d44e4c?
 const STORAGE_KEY = (slug) => `aa_conv_${slug}`;
 const LANG_KEY = (slug) => `aa_lang_${slug}`;
 
-function fmtSlot(iso) {
+function fmtSlot(iso, lang) {
   const d = new Date(iso);
-  return d.toLocaleString(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
+  return d.toLocaleString(lang === "fr" ? "fr-CA" : undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" });
 }
 const money = (n) => `$${Math.round(n).toLocaleString()}`;
 
@@ -50,6 +51,10 @@ export default function SellerChat() {
           setConvId(existing);
           setMessages(data.messages);
           if (data.conversation?.language) setLang(data.conversation.language);
+          if (data.recommendations?.length) setRecommendations(data.recommendations);
+          if (data.consent_status) setConsentResult(data.consent_status);
+          else if (data.recommendations?.length) setCanRefer(true);
+          if (data.booked_appointment) setBooked(data.booked_appointment);
           return;
         } catch { localStorage.removeItem(STORAGE_KEY(slug)); }
       }
@@ -119,7 +124,7 @@ export default function SellerChat() {
       setConsentResult(accepted ? "accepted" : "declined");
       setConsentOpen(false);
       setCanRefer(false);
-    } catch {}
+    } catch { toast.error("Something went wrong. Please try again."); }
   };
 
   if (notFound)
@@ -207,7 +212,7 @@ export default function SellerChat() {
                   {slots.map((s) => (
                     <button key={s.start_time} data-testid="slot-option" onClick={() => book(s)}
                       className="text-left text-sm border border-black/10 rounded-[6px] px-3 py-2.5 hover:border-[#2563EB] hover:bg-[#2563EB]/5 transition-colors duration-200 font-mono-plex">
-                      {fmtSlot(s.start_time)}
+                      {fmtSlot(s.start_time, lang)}
                     </button>
                   ))}
                 </div>
@@ -220,7 +225,7 @@ export default function SellerChat() {
               <Clock size={28} weight="fill" className="text-[#B45309]" />
               <div>
                 <div className="font-semibold text-[#B45309]">{tr("appt_requested")}</div>
-                <div className="text-sm text-[#525252] font-mono-plex">{fmtSlot(booked.start_time)}</div>
+                <div className="text-sm text-[#525252] font-mono-plex">{fmtSlot(booked.start_time, lang)}</div>
                 <div className="text-xs text-[#525252] mt-0.5">{tr("appt_pending")}</div>
               </div>
             </div>

@@ -127,3 +127,20 @@ Client vision: AutoNova = operator connecting MANY dealer groups; inventory is I
 - Features now: AI chat, deterministic scoring, connected inventory layer, cross-dealer matching, referral/commission tracking, always-fresh data.
 - New "Inventory layer" section (#network): Connect → Normalize → Refresh → Match & refer, with a "Private by design — never republished publicly" assurance. Nav + "How it works" + "For dealerships" copy updated. Verified desktop + mobile, no content overflow.
 
+## PRD v1.0 Phase 1 — Customer journey + bilingual + consent + appointments (2026-10-01)
+Full engineering audit delivered (10 modules). User approved Phase 1 with choices: support both buyers & sellers (lead with buyer discovery); consent gating ON (block sharing until consent); appointments request→confirm; same Gemini model replies in user's language.
+Implemented & tested (iteration_10.json: backend 18/20 then all fixes verified, frontend 100% flows incl. Gemini replying in French):
+- **AI reframe (ai_engine.py)**: SYSTEM_TEMPLATE now serves buyers (progressive discovery: type, make/model, new/used, budget, financing, year, mileage, fuel, transmission, location, usage) + sellers/trade-ins; `run_orchestrator(language=)` injects "respond ONLY in {lang}"; added buyer intents + buyer preference fields.
+- **Bilingual EN/FR**: conversation stores `language` (set at start, switchable mid-chat via MessageBody.language); bilingual greeting; frontend `src/i18n.js` dictionary + EN/FR switcher in SellerChat (chrome, placeholder, disclaimer, consent, cards). Admin pages still EN (later phase).
+- **Consent workflow (Module 7)**: `consent_agreement_versions` (EN+FR seeded on startup, `{{recipient}}`/`{{platform}}` templating) + `consent_records` (recipient groups, categories, status, timestamps, audit). Endpoints: GET `/public/{slug}/conversations/{id}/consent-agreement`, POST `.../consent`. **Referral/dealership sharing REMOVED from auto-match** — now only created on consent accept (`_upsert_referral(status="sent")`). Decline → no referral, lead consent_status declined. Org-scoped + recipient validated.
+- **Appointments request→confirm (Module 8)**: public_book sets status `requested` (was auto-`confirmed`); double-book guard includes `requested`; dealership endpoints `/appointments/{id}/confirm` (precondition requested/proposed, 404 if missing) + `/decline` (404 if missing, sets lead appointment_declined). Appointments page has "Awaiting your confirmation" section with Confirm/Decline.
+- **Vehicle recommendations in chat**: message + GET-conversation responses include `recommendations` (real inventory, internal-only) → VehicleCard gallery; `can_refer`/`consented` drive the Connect button; chat state rehydrates on reload (recommendations/consent/booking from GET conversation).
+- Bug fixes post-test: 409 double-book, 404 on bogus decline, confirm precondition 400, consent org-scoping + recipient validation, consent_status set on accept even without match, FR date localization (fr-CA), Appointments toast wording + error handling.
+
+### PRD backlog (post Phase 1)
+- Phase 2: Le Don de L'Auto (rooftop under Le Prix du Gros group) inventory adapter + external vehicle-ID mapping table (history/conflict) — BLOCKED on their feed/API docs + credentials.
+- Phase 3: CRM pipeline config, customer profiles, lead assignment history, sales_rep role, real Email/SMS, follow-up automation (WhatsApp if approved).
+- Phase 4: full appointment lifecycle extras, test-drive tracking, sale verification, commission models (%/volume) + reports.
+- Phase 5: H. Grégoire + auction extension (conditional).
+- Cross-cutting: admin-pages i18n; customer identity/portal; legal counsel sign-off on Law 25/PIPEDA consent wording.
+

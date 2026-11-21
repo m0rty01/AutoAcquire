@@ -1,0 +1,45 @@
+{
+  "summary": "Tested AutoNova Phase 1 (buyer greeting, EN/FR, consent-gated referrals, requested->confirmed appointments) on backend and frontend. Backend: 18/20 pytest pass. The 2 failures are real bugs: the same slot can be requested twice (no 409), and decline returns 200 for an appointment id that does not exist. Frontend: the full customer journey works in FR. Covered: buyer greeting, lang switch (subtitle, placeholder and disclaimer in FR), Gemini replied in French (no 429), vehicle card, connect button, FR consent modal, Accept -> 'Vous êtes en contact' with referral 'sent' and lead 'sent_to_dealership' in the DB, Decline -> declined state with no referral and consent_status 'declined', and the 'Rendez-vous demandé / en attente' card with appointment status 'requested'. Dealership Appointments page: Confirm moves the card to Confirmed (lead -> appointment_confirmed); Decline moves it to Past & closed as Declined. Regression: dashboard, leads, inventory, partners, referrals and analytics all load with no page errors. Recommendations/can_refer were injected through Playwright route interception, with a real inventory_match seeded in the DB, because the AI did not reach the match stage in 1 turn.",
+  "backend_issues": {
+    "critical": [
+      {"endpoint": "POST /api/public/{slug}/conversations/{conv_id}/appointments", "issue": "Double-booking check (server.py ~L476) only looks at status in ['proposed','confirmed'], so 2 customers can both request the same slot and both get 200. Now that every new booking is 'requested', the conflict guard never fires for public bookings. Add 'requested' to the $in list.", "priority": "HIGH"}
+    ],
+    "minor": [
+      {"endpoint": "POST /api/appointments/{id}/decline", "issue": "Returns 200 success for a nonexistent or other-org id (no find/404 check, unlike confirm). It also does not update the lead status (the lead stays 'appointment_requested') and sends no notification to the customer."},
+      {"endpoint": "POST /api/appointments/{id}/confirm", "issue": "No status precondition: a declined/cancelled/completed appointment can be re-confirmed."},
+      {"endpoint": "POST /api/public/{slug}/conversations/{conv_id}/consent", "issue": "Neither the consent nor the consent-agreement endpoint checks that the conversation belongs to the slug's org (cross-tenant). recipient_dealer_group_id from the client is trusted and not validated against the org's dealer groups. Accept with no inventory_match records 'accepted' but leaves lead consent_status unchanged."},
+      {"endpoint": "Public slots", "issue": "Slots are stored as UTC times (e.g. 09:00+00:00) although the org time_zone is America/Toronto. Probably existing behaviour; check that the availability rules are applied in the dealer's local time."}
+    ]
+  },
+  "frontend_issues": {
+    "ui_bugs": [
+      {"component": "SellerChat state on reload", "issue": "recommendations, canRefer, consentResult and booked are kept only in React state. After a page reload the existing conversation is restored but the connect button, consent result and booking card disappear. The GET conversation endpoint does not return them.", "selector": "[data-testid='connect-dealer-btn'], [data-testid='booking-requested']", "priority": "MEDIUM"},
+      {"component": "SellerChat FR dates", "issue": "fmtSlot uses toLocaleString(undefined), so slot and booking dates show in English ('Mon, Nov 23') in FR mode. Pass 'fr-CA' when lang is fr. The booking message also contains the English type 'in person appraisal' inside the French sentence.", "selector": "[data-testid='slot-option'], [data-testid='booking-requested']", "priority": "LOW"},
+      {"component": "Appointments toast", "issue": "Toast reads 'Appointment decline' / 'Appointment confirm' (it builds the text from the action verb). act() has no try/catch, so failures show nothing.", "selector": "sonner toast", "priority": "LOW"},
+      {"component": "SellerChat consent/book errors", "issue": "openConsent, decideConsent and book swallow errors silently (empty catch): the user gets no feedback if the call fails.", "selector": "consent-accept-btn", "priority": "LOW"}
+    ],
+    "integration_issues": [],
+    "design_issues": [
+      {"screen": "SellerChat", "issues": ["Switching to FR mid-conversation leaves the earlier English greeting (acceptable, but the greeting could be re-sent).", "The consent modal close (X) button has no data-testid."]}
+    ]
+  },
+  "test_report_links": ["/app/backend/tests/test_phase1_consent_bilingual_appointments.py", "/app/test_reports/pytest/pytest_phase1.xml"],
+  "action_items": [
+    "Include 'requested' in the public_book conflict check so the same slot cannot be requested twice (409).",
+    "decline_appointment: return 404 when the appointment is not found, update the lead status, and optionally notify the customer.",
+    "confirm_appointment: allow it only from requested/proposed.",
+    "Public consent endpoints: check that conv.organization_id == org.id and validate recipient_dealer_group_id.",
+    "Persist and rehydrate the chat's recommendation/consent/booking state on reload (return it from GET /public/{slug}/conversations/{id}).",
+    "Localize slot dates and the appointment type in FR; fix the toast wording."
+  ],
+  "critical_code_review_comments": [
+    "server.py is 1490 lines; split it into routers (public chat, appointments, referrals, admin).",
+    "Public endpoints get conversations by id only, never scoped by slug/org."
+  ],
+  "updated_files": ["/app/backend/tests/test_phase1_consent_bilingual_appointments.py"],
+  "success_rate": {"backend": "90% (18/20)", "frontend": "100% of requested flows working (minor issues noted)"},
+  "seed_data_creation": "TEST_ conversations/leads/inventory_matches were created and then deleted by id: the pytest module cleanup plus a manual cleanup for the UI runs. One greeting-only EN conversation/lead (status 'new', no seller name), created by the first chat page load, was left because it could not be identified safely.",
+  "retest_needed": true,
+  "should_main_agent_self_test": true,
+  "context_for_next_testing_agent": "Gemini worked (no 429) and replied in French. To exercise recommendations in the UI, seed an inventory_match for the lead in Mongo and intercept the POST .../messages response to add recommendations/can_refer/show_appointments. Container clock is Nov 2026. Run the test file with the default pytest.ini (xdist)."
+}

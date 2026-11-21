@@ -9,10 +9,15 @@ export default function Appointments() {
   const load = () => client.get("/appointments").then((r) => setAppts(r.data));
   useEffect(() => { load(); }, []);
 
+  const LABEL = { confirm: "confirmed", decline: "declined", complete: "completed", "no-show": "marked no-show", cancel: "cancelled" };
   const act = async (id, action) => {
-    await client.post(`/appointments/${id}/${action}`);
-    toast.success(`Appointment ${action.replace("-", " ")}`);
-    load();
+    try {
+      await client.post(`/appointments/${id}/${action}`);
+      toast.success(`Appointment ${LABEL[action] || action}`);
+      load();
+    } catch (e) {
+      toast.error(e.response?.data?.detail || "Action failed");
+    }
   };
 
   if (!appts) return <Loading />;
