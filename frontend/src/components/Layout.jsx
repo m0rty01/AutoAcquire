@@ -3,7 +3,7 @@ import { useAuth } from "@/context/AuthContext";
 import OnboardingWizard from "@/pages/OnboardingWizard";
 import {
   SquaresFour, Users, CalendarBlank, Car, ChartBar, GearSix, SignOut, Buildings, Robot, Copy,
-  Handshake, HandArrowDown, Receipt, Kanban,
+  Handshake, HandArrowDown, Receipt, Kanban, UserGear,
 } from "@phosphor-icons/react";
 import { toast } from "sonner";
 
@@ -17,6 +17,7 @@ const NAV = [
   { to: "/app/referrals", label: "Referrals", icon: HandArrowDown },
   { to: "/app/sales", label: "Sales", icon: Receipt },
   { to: "/app/analytics", label: "Analytics", icon: ChartBar },
+  { to: "/app/users", label: "Users", icon: UserGear, roles: ["platform_admin", "platform_support", "dealership_admin", "dealership_manager"] },
   { to: "/app/settings", label: "Settings", icon: GearSix },
 ];
 
@@ -41,7 +42,7 @@ export default function Layout() {
           </span>
         </div>
         <nav className="flex-1 py-4 space-y-1 px-2">
-          {NAV.map((n) => (
+          {NAV.filter((n) => !n.roles || n.roles.includes(user?.role)).map((n) => (
             <NavLink
               key={n.to}
               to={n.to}

@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import client from "@/lib/api";
 import { PageHeader, Loading } from "@/components/Bits";
 import { toast } from "sonner";
@@ -12,6 +13,7 @@ const LABELS = {
 };
 
 export default function Pipeline() {
+  const navigate = useNavigate();
   const [data, setData] = useState(null);
   const [search, setSearch] = useState("");
   const [drag, setDrag] = useState(null);
@@ -67,7 +69,7 @@ export default function Pipeline() {
               <div className="space-y-2 min-h-[60px]" data-testid={`col-${stage}`}>
                 {cards.map((c) => (
                   <div key={c.id} data-testid="pipeline-card" draggable onDragStart={() => setDrag({ id: c.id, stage })}
-                    onClick={() => openCard(c)}
+                    onClick={() => navigate(`/app/customers/${c.id}`)}
                     className="bg-card border border-border rounded-[4px] p-3 cursor-grab active:cursor-grabbing hover:border-primary/50 transition-colors">
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-medium text-sm truncate">{c.customer_name}</span>
@@ -78,6 +80,7 @@ export default function Pipeline() {
                     <div className="flex items-center gap-2 mt-2 text-[11px] text-muted-foreground font-mono-plex">
                       <Clock size={11} /> {c.age_days}d
                       {c.overdue && <span className="flex items-center gap-0.5 text-amber-400"><Warning size={11} weight="fill" /> {c.idle_days}d idle</span>}
+                      <button data-testid="card-timeline-btn" onClick={(e) => { e.stopPropagation(); openCard(c); }} className="ml-auto hover:text-primary">timeline</button>
                     </div>
                   </div>
                 ))}
@@ -94,6 +97,7 @@ export default function Pipeline() {
               <h3 className="font-head font-bold text-lg">{active.customer_name}</h3>
               <button onClick={() => setActive(null)} className="text-muted-foreground hover:text-foreground"><X size={20} /></button>
             </div>
+            <button data-testid="drawer-open-profile" onClick={() => navigate(`/app/customers/${active.id}`)} className="text-xs text-primary hover:underline mb-2">Open full profile →</button>
             <div className="text-xs text-muted-foreground mb-4">{active.email || "—"} · {active.phone || "—"} · consent: {active.consent_status || "none"}</div>
 
             <div className="flex gap-2 mb-4">

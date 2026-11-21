@@ -2,7 +2,6 @@ import os
 import jwt
 import bcrypt
 import secrets
-import requests
 from datetime import datetime, timezone, timedelta
 from fastapi import APIRouter, Request, HTTPException, Depends
 from pydantic import BaseModel, EmailStr
@@ -49,6 +48,8 @@ async def get_current_user(request: Request) -> dict:
         user = await db.users.find_one({"id": payload["sub"]})
         if not user:
             raise HTTPException(status_code=401, detail="User not found")
+        if user.get("status") == "inactive":
+            raise HTTPException(status_code=401, detail="Account deactivated")
         clean(user)
         user.pop("password_hash", None)
         return user
@@ -134,6 +135,8 @@ async def login(body: LoginBody):
     user = await db.users.find_one({"email": email})
     if not user or not verify_password(body.password, user.get("password_hash", "")):
         raise HTTPException(status_code=401, detail="Invalid email or password")
+    if user.get("status") == "inactive":
+        raise HTTPException(status_code=403, detail="This account has been deactivated")
     await db.users.update_one({"id": user["id"]}, {"$set": {"last_login_at": now_iso()}})
     await audit(user["organization_id"], "user", user["id"], "user", user["id"], "login")
     token = create_access_token(user["id"], email)
@@ -156,7 +159,7 @@ async def me(user: dict = Depends(get_current_user)):
 async def forgot_password(body: ForgotBody):
     email = body.email.lower()
     user = await db.users.find_one({"email": email})
-    if user:
+    if user and user.get("status") != "inactive":
         token = secrets.token_urlsafe(32)
         await db.password_reset_tokens.insert_one({
             "id": new_id(), "user_id": user["id"], "token": token, "used": False,
@@ -174,8 +177,14 @@ async def reset_password(body: ResetBody):
         raise HTTPException(status_code=400, detail="Invalid or used reset token")
     if datetime.fromisoformat(rec["expires_at"]) < datetime.now(timezone.utc):
         raise HTTPException(status_code=400, detail="Reset token expired")
+    if len(body.password) < 8:
+        raise HTTPException(status_code=400, detail="Password must be at least 8 characters")
+    target = await db.users.find_one({"id": rec["user_id"]})
+    if not target or target.get("status") == "inactive":
+        raise HTTPException(status_code=400, detail="Account is not active")
     await db.users.update_one({"id": rec["user_id"]},
-                              {"$set": {"password_hash": hash_password(body.password)}})
+                              {"$set": {"password_hash": hash_password(body.password), "status": "active",
+                                        "updated_at": now_iso()}})
     await db.password_reset_tokens.update_one({"id": rec["id"]}, {"$set": {"used": True}})
     return {"success": True}
 
@@ -228,6 +237,8 @@ async def google_login(body: GoogleLoginBody):
         await audit(org_id, "user", user_id, "user", user_id, "google_register")
         user = await db.users.find_one({"id": user_id})
     else:
+        if user.get("status") == "inactive":
+            raise HTTPException(status_code=403, detail="This account has been deactivated")
         await db.users.update_one({"id": user["id"]},
                                   {"$set": {"last_login_at": now_iso(), "picture": picture,
                                             "google_sub": google_sub}})

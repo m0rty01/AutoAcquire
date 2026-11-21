@@ -15,6 +15,8 @@ from ai_engine import run_orchestrator, FALLBACK_MESSAGE, MODEL_PROVIDER, MODEL_
 from engine import run_qualification, compute_score, match_inventory, generate_slots, estimate_financing, SCORE_VERSION
 from connectors import run_source_sync
 from seed import seed_demo
+from crm import crm_router, PIPELINE_STAGES, log_activity, scoped_lead, stage_of as _stage_of
+from user_admin import users_router
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("autoacquire")
@@ -579,10 +581,7 @@ async def list_leads(user: dict = Depends(get_current_user), status: Optional[st
 
 @api.get("/leads/{lead_id}")
 async def get_lead(lead_id: str, user: dict = Depends(get_current_user)):
-    lead = await db.leads.find_one({"id": lead_id, "organization_id": _org(user)})
-    if not lead:
-        raise HTTPException(status_code=404, detail="Lead not found")
-    clean(lead)
+    lead = await scoped_lead(lead_id, user)
     seller = await db.sellers.find_one({"id": lead["seller_id"]})
     vehicle = await db.seller_vehicles.find_one({"lead_id": lead_id})
     conv = await db.conversations.find_one({"lead_id": lead_id})
@@ -645,6 +644,13 @@ async def correct_vehicle(lead_id: str, body: VehiclePatch, user: dict = Depends
 
 @api.post("/leads/{lead_id}/assign")
 async def assign_lead(lead_id: str, body: dict, user: dict = Depends(get_current_user)):
+    if user["role"] not in ("platform_admin", "dealership_admin", "dealership_manager"):
+        raise HTTPException(status_code=403, detail="Only managers can assign leads")
+    if not await db.leads.find_one({"id": lead_id, "organization_id": _org(user)}):
+        raise HTTPException(status_code=404, detail="Lead not found")
+    if body.get("user_id") and not await db.users.find_one(
+            {"id": body["user_id"], "organization_id": _org(user), "status": {"$ne": "inactive"}}):
+        raise HTTPException(status_code=400, detail="Assignee must be an active user of this dealership")
     await db.leads.update_one({"id": lead_id, "organization_id": _org(user)},
                               {"$set": {"assigned_user_id": body.get("user_id"), "updated_at": now_iso(), "last_activity_at": now_iso()}})
     await audit(_org(user), "user", user["id"], "lead", lead_id, "assign", None, body.get("user_id"))
@@ -1055,28 +1061,6 @@ async def noshow_appointment(appt_id: str, user: dict = Depends(get_current_user
 
 
 # ---------------- CRM: pipeline + activity timeline ----------------
-PIPELINE_STAGES = ["new_lead", "contact_required", "contacted", "qualified", "vehicle_matched",
-                   "appointment_requested", "appointment_confirmed", "test_drive_scheduled",
-                   "test_drive_completed", "negotiation", "sale_reported", "sale_verified", "lost"]
-
-_STATUS_TO_STAGE = {
-    "new": "new_lead", "needs_review": "contact_required", "qualified": "qualified",
-    "partially_qualified": "qualified", "sent_to_dealership": "vehicle_matched",
-    "appointment_requested": "appointment_requested", "appointment_confirmed": "appointment_confirmed",
-    "appointment_declined": "contacted", "lost": "lost",
-}
-
-
-def _stage_of(lead: dict) -> str:
-    return lead.get("pipeline_stage") or _STATUS_TO_STAGE.get(lead.get("status"), "new_lead")
-
-
-async def log_activity(org_id, lead_id, activity_type, actor="system", details="", dealer_group_id=None):
-    await db.activities.insert_one({"id": new_id(), "organization_id": org_id, "lead_id": lead_id,
-        "activity_type": activity_type, "actor": actor, "details": details,
-        "dealer_group_id": dealer_group_id, "created_at": now_iso()})
-
-
 @api.get("/pipeline")
 async def get_pipeline(user: dict = Depends(get_current_user), dealer_group_id: Optional[str] = None,
                        assigned_user_id: Optional[str] = None, search: Optional[str] = None):
@@ -1350,39 +1334,6 @@ async def update_org(body: dict, user: dict = Depends(require_roles("dealership_
     body["updated_at"] = now_iso()
     await db.organizations.update_one({"id": _org(user)}, {"$set": body})
     return clean(await db.organizations.find_one({"id": _org(user)}))
-
-
-@api.get("/users")
-async def list_users(user: dict = Depends(get_current_user)):
-    rows = await db.users.find({"organization_id": _org(user)}).to_list(200)
-    out = []
-    for u in rows:
-        clean(u); u.pop("password_hash", None)
-        out.append(u)
-    return out
-
-
-class InviteBody(BaseModel):
-    first_name: str
-    last_name: str
-    email: str
-    role: str
-
-
-@api.post("/users/invite")
-async def invite_user(body: InviteBody, user: dict = Depends(require_roles("dealership_admin"))):
-    from auth import hash_password
-    email = body.email.lower()
-    if await db.users.find_one({"email": email}):
-        raise HTTPException(status_code=400, detail="Email already exists")
-    uid = new_id()
-    temp = "Welcome123!"
-    await db.users.insert_one({"id": uid, "organization_id": _org(user), "first_name": body.first_name,
-        "last_name": body.last_name, "email": email, "role": body.role, "status": "active",
-        "auth_provider": "password", "password_hash": hash_password(temp),
-        "created_at": now_iso(), "updated_at": now_iso()})
-    await notify(_org(user), "user", email, "email", "invitation", {"temp_password": temp})
-    return {"success": True, "temp_password": temp}
 
 
 @api.get("/audit-logs")
@@ -1663,6 +1614,8 @@ async def cron_sync_sources(request: Request, authorization: Optional[str] = Hea
 
 app.include_router(auth_router)
 app.include_router(api)
+app.include_router(crm_router)
+app.include_router(users_router)
 
 _cors_env = [o.strip() for o in os.environ.get("CORS_ORIGINS", "*").split(",") if o.strip()]
 app.add_middleware(

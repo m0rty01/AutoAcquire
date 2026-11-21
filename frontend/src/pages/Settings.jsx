@@ -22,7 +22,7 @@ export default function Settings() {
         ))}
       </div>
       {tab === "Profile" && <Profile />}
-      {tab === "Users" && <Users canManage={user?.role === "dealership_admin"} />}
+      {tab === "Users" && <Users />}
       {tab === "Qualification Rules" && <Rules canManage={user?.role === "dealership_admin"} />}
       {tab === "Availability" && <Availability />}
       {tab === "AI Behavior" && <AIBehavior />}
@@ -56,48 +56,13 @@ function Profile() {
   );
 }
 
-function Users({ canManage }) {
-  const [users, setUsers] = useState(null);
-  const [form, setForm] = useState({ role: "dealership_representative" });
-  const load = () => client.get("/users").then((r) => setUsers(r.data));
-  useEffect(() => { load(); }, []);
-  const invite = async () => {
-    try {
-      const { data } = await client.post("/users/invite", form);
-      toast.success(`Invited. Temp password: ${data.temp_password}`); load();
-      setForm({ role: "dealership_representative" });
-    } catch (e) { toast.error(e.response?.data?.detail || "Failed"); }
-  };
-  if (!users) return <Loading />;
+function Users() {
   return (
-    <div className="space-y-4">
-      {canManage && (
-        <Card>
-          <h3 className="font-head font-bold tracking-tight mb-3">Invite user</h3>
-          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-            <input data-testid="invite-fn" placeholder="First name" value={form.first_name ?? ""} onChange={(e) => setForm({ ...form, first_name: e.target.value })} className="rounded-[4px] border border-input bg-card px-2 py-1.5 text-sm" />
-            <input data-testid="invite-ln" placeholder="Last name" value={form.last_name ?? ""} onChange={(e) => setForm({ ...form, last_name: e.target.value })} className="rounded-[4px] border border-input bg-card px-2 py-1.5 text-sm" />
-            <input data-testid="invite-email" placeholder="Email" value={form.email ?? ""} onChange={(e) => setForm({ ...form, email: e.target.value })} className="rounded-[4px] border border-input bg-card px-2 py-1.5 text-sm" />
-            <select value={form.role} onChange={(e) => setForm({ ...form, role: e.target.value })} className="rounded-[4px] border border-input bg-card px-2 py-1.5 text-sm">
-              <option value="dealership_manager">Manager</option>
-              <option value="dealership_representative">Representative</option>
-              <option value="dealership_admin">Admin</option>
-            </select>
-          </div>
-          <button data-testid="invite-btn" onClick={invite} className="mt-3 bg-primary text-primary-foreground px-4 py-2 rounded-[4px] text-sm font-semibold hover:opacity-90 transition-opacity duration-200">Send invite</button>
-        </Card>
-      )}
-      <Card>
-        <table className="w-full text-sm">
-          <thead><tr className="text-left text-xs font-mono-plex uppercase tracking-wider text-muted-foreground border-b border-border"><th className="pb-2">Name</th><th className="pb-2">Email</th><th className="pb-2">Role</th></tr></thead>
-          <tbody>
-            {users.map((u) => (
-              <tr key={u.id} className="border-b border-border last:border-0"><td className="py-2">{u.first_name} {u.last_name}</td><td className="py-2 text-muted-foreground">{u.email}</td><td className="py-2">{titleize(u.role)}</td></tr>
-            ))}
-          </tbody>
-        </table>
-      </Card>
-    </div>
+    <Card>
+      <h3 className="font-head font-bold tracking-tight mb-2">Team & access</h3>
+      <p className="text-sm text-muted-foreground mb-3">User creation, roles, deactivation and password resets now live in User Management.</p>
+      <a href="/app/users" data-testid="settings-open-users" className="text-sm text-primary hover:underline">Open User Management →</a>
+    </Card>
   );
 }
 

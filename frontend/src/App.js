@@ -18,6 +18,9 @@ import Appointments from "@/pages/Appointments";
 import Analytics from "@/pages/Analytics";
 import Settings from "@/pages/Settings";
 import PlatformAdmin from "@/pages/PlatformAdmin";
+import CustomerProfile from "@/pages/CustomerProfile";
+import UserManagement from "@/pages/UserManagement";
+import ResetPassword from "@/pages/ResetPassword";
 import "@/App.css";
 
 function Protected({ children }) {
@@ -34,6 +37,7 @@ function RootRouter() {
       <Route path="/" element={<Landing />} />
       <Route path="/login" element={<Login />} />
       <Route path="/forgot-password" element={<ForgotPassword />} />
+      <Route path="/reset-password" element={<ResetPassword />} />
       <Route path="/sell/:slug" element={<SellerChat />} />
       <Route path="/app" element={<Protected><Layout /></Protected>}>
         <Route index element={<Navigate to="/app/dashboard" replace />} />
@@ -41,6 +45,8 @@ function RootRouter() {
         <Route path="leads" element={<Leads />} />
         <Route path="pipeline" element={<Pipeline />} />
         <Route path="leads/:id" element={<LeadDetail />} />
+        <Route path="customers/:id" element={<CustomerProfile />} />
+        <Route path="users" element={<UserManagement />} />
         <Route path="inventory" element={<Inventory />} />
         <Route path="partners" element={<Partners />} />
         <Route path="referrals" element={<Referrals />} />

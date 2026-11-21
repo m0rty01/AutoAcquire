@@ -68,6 +68,10 @@ export default function LeadDetail() {
           </div>
         </div>
         <div className="flex gap-2">
+          <button data-testid="open-customer-profile-btn" onClick={() => navigate(`/app/customers/${id}`)}
+            className="flex items-center gap-1.5 text-xs bg-primary text-primary-foreground px-3 py-2 rounded-[4px] hover:opacity-90 transition-opacity duration-200">
+            Customer profile
+          </button>
           <button data-testid="recalc-score-btn" onClick={() => act(() => client.post(`/leads/${id}/recalculate-score`), "Score recalculated")}
             className="flex items-center gap-1.5 text-xs bg-secondary hover:bg-accent px-3 py-2 rounded-[4px] transition-colors duration-200">
             <ArrowsClockwise size={14} /> Recalc score
